@@ -71,7 +71,7 @@
   ];
 
   var PROJECTS = ['Halcyon House', 'Redfern Penthouse', 'Marlow Hotel Lobby', 'Ashgrove Residence', 'Verdant Offices'];
-  var PHASES = ['Design development', 'Construction docs', 'Procurement', 'Contract admin', 'Schematic design'];
+  var PHASES = ['Concept', 'Initial direction', 'Detail drawing', 'On site', 'Handover'];
 
   var PERIODS = [
     { id: 'm', label: 'Last 4 weeks', sub: '4 weeks to Sep 14, 2026', weeks: 4, cellW: '96px', colW: '92px', gap: '18px', merchGM: 40000, mult: 2.80, multDelta: '+0.05',

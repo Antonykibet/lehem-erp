@@ -1,50 +1,75 @@
 /* Lehem Interiors — Overview
-   All figures below are sample data for demonstration. Replace DATA with
-   real values (or a fetch from your API) when wiring this to the backend. */
+   Sample data for demonstration. The team names are real; clients, dates,
+   projects and money figures are invented. Replace the data blocks below. */
 (function () {
   'use strict';
 
   /* ------------------------------------------------------------------ data */
 
-  var ITEMS = [
-    { id: 'i1', kind: 'Money', cat: 'money', color: 'var(--crit)',
-      title: 'Halcyon House — invoice 1042 is 21 days overdue',
-      sub: 'Sent 24 Aug · two reminders, no reply',
-      amount: '$38,400', action: 'Chase',
-      next: 'The install is booked for 12 Oct and this invoice covers the deposit on the joinery. Either call the client office this week or hold the delivery until it clears — do not let both slide.' },
-    { id: 'i2', kind: 'Changes', cat: 'changes', color: 'var(--crit)',
-      title: 'Marlow Hotel Lobby — a third revision was requested',
-      sub: 'The contract allows two · asked for in Tuesday’s client email',
-      amount: '~14 hrs', action: 'Raise change order',
-      next: 'Nothing bills until this is raised and signed. Roughly 14 hours of redrawing plus new quotes on two bespoke items. Raise it before anyone starts, or record it as absorbed so it at least shows up in the numbers.' },
-    { id: 'i3', kind: 'Orders', cat: 'orders', color: 'var(--serious)',
-      title: 'Redfern Penthouse — 3 orders are past their promised date',
-      sub: 'Longest is 26 days late · sofa frame, two side tables',
-      amount: '$46,800', action: 'Review',
-      next: 'The sofa frame misses the delivery window on 30 Sep. Ask the vendor for a firm date, and if it slips again the client needs to hear it from you before they notice the empty room.' },
-    { id: 'i4', kind: 'People', cat: 'people', color: 'var(--warn)',
-      title: 'Awuor Kapere is booked past full for two weeks running',
-      sub: '108% this week, 112% next · drawing sets and detailing',
-      amount: '112%', action: 'Rebalance',
-      next: 'Chrisphine has 9 hours free a week and can take the detailing. If nothing moves, expect the Ashgrove permit set to slip or the hours to come out of a weekend.' },
-    { id: 'i5', kind: 'Orders', cat: 'orders', color: 'var(--serious)',
-      title: 'Ashgrove Residence — dining chairs arrived damaged',
-      sub: 'Received 11 Sep · 6 of 8 chairs, frames cracked in transit',
-      amount: '$9,200', action: 'Open claim',
-      next: 'File the freight claim within 14 days of receipt or the carrier stops paying. The line is discontinued, so the reselection hours should go on a change order rather than quietly onto the project.' },
-    { id: 'i6', kind: 'Money', cat: 'money', color: 'var(--warn)',
-      title: 'Verdant Offices — 60% of the deposit is spent, no invoice raised',
-      sub: 'Concept sign-off due 26 Sep',
-      amount: '$24,000', action: 'Invoice',
-      next: 'You are holding their money and doing the work, but nothing has been billed against the phase. Raise the progress invoice at sign-off so the deposit stops standing in for revenue.' }
+  /* Same phase spine as the Projects module. */
+  var PHASES = ['Concept', 'Initial direction', 'Detail drawing', 'On site', 'Handover'];
+
+  /* Running projects. Mirrors the Projects module's "Running" filter. */
+  var PROJECTS = [
+    { id: 'halcyon', name: 'Halcyon House', at: 3, fee: 78, prog: 71, budget: '$412,000',
+      milestone: 'Install', date: '12 Oct', lead: 'WG', leadName: 'Wanjeri', started: '6 Jan 2026',
+      phases: [['6 Jan', '3 Feb', 'Ace Oreal'], ['5 Feb', '20 Mar', 'Wanjeri Gatheru'],
+               ['23 Mar', '29 May', 'Awuor Kapere'], ['8 Jun', null, 'Andrew Obel']] },
+    { id: 'redfern', name: 'Redfern Penthouse', at: 3, fee: 61, prog: 64, budget: '$268,000',
+      milestone: 'First delivery', date: '30 Sep', lead: 'FA', leadName: 'Faazati', started: '24 Feb 2026',
+      phases: [['24 Feb', '17 Mar', 'Elena Meman'], ['19 Mar', '30 Apr', 'Faazati Ali'],
+               ['4 May', '26 Jun', 'Damaris Maina'], ['6 Jul', null, 'Andrew Obel']] },
+    { id: 'marlow', name: 'Marlow Hotel Lobby', at: 2, fee: 44, prog: 38, budget: '$980,000',
+      milestone: 'Client review', date: '24 Sep', lead: 'EM', leadName: 'Elena', started: '11 May 2026',
+      phases: [['11 May', '19 Jun', 'Ace Oreal'], ['22 Jun', '7 Aug', 'Elena Meman'],
+               ['10 Aug', null, 'Awuor Kapere']] },
+    { id: 'ashgrove', name: 'Ashgrove Residence', at: 2, fee: 52, prog: 55, budget: '$196,000',
+      milestone: 'Permit set', date: '3 Oct', lead: 'WG', leadName: 'Wanjeri', started: '2 Mar 2026',
+      phases: [['2 Mar', '27 Mar', 'Elena Meman'], ['30 Mar', '22 May', 'Wanjeri Gatheru'],
+               ['25 May', null, 'Deporah Chelimo']] },
+    { id: 'tatu', name: 'Tatu Gardens Clubhouse', at: 1, fee: 31, prog: 34, budget: '$735,000',
+      milestone: 'Planting review', date: '2 Oct', lead: 'KF', leadName: 'Kerwyn', started: '6 Jul 2026',
+      phases: [['6 Jul', '14 Aug', 'Kerwyn Fourie'], ['17 Aug', null, 'Kepha Mochama']] },
+    { id: 'verdant', name: 'Verdant Offices', at: 0, fee: 22, prog: 30, budget: '$540,000',
+      milestone: 'Concept sign-off', date: '26 Sep', lead: 'AO', leadName: 'Ace', started: '24 Aug 2026',
+      phases: [['24 Aug', null, 'Ace Oreal']] },
+    { id: 'brookside', name: 'Brookside Show Unit', at: 4, fee: 94, prog: 92, budget: '$148,000',
+      milestone: 'Client walkthrough', date: '29 Sep', lead: 'FA', leadName: 'Faazati', started: '19 Jan 2026',
+      phases: [['19 Jan', '6 Feb', 'Elena Meman'], ['9 Feb', '13 Mar', 'Faazati Ali'],
+               ['16 Mar', '24 Apr', 'Damaris Maina'], ['4 May', '28 Aug', 'Andrew Obel'],
+               ['31 Aug', null, 'Andrew Obel']] }
   ];
 
-  var TABS = [
-    { id: 'all', label: 'Everything' },
-    { id: 'money', label: 'Money' },
-    { id: 'orders', label: 'Orders' },
-    { id: 'people', label: 'People' },
-    { id: 'changes', label: 'Changes' }
+  /* Who is on what today. One row per person at work. */
+  var TODAY = [
+    { initials: 'WG', name: 'Wanjeri Gatheru', role: 'Senior Interior Designer',
+      task: 'Joinery elevations, detail review before the install', project: 'halcyon', hrs: 6 },
+    { initials: 'AN', name: 'Andrew Obel', role: 'Project Coordinator',
+      task: 'On site with the joinery contractor', project: 'halcyon', hrs: 8 },
+    { initials: 'AK', name: 'Awuor Kapere', role: 'CAD Technician',
+      task: '300-series revisions to the lobby ceiling', project: 'marlow', hrs: 8 },
+    { initials: 'EM', name: 'Elena Meman', role: 'Creative Head',
+      task: 'Client review pack for Thursday', project: 'marlow', hrs: 4 },
+    { initials: 'SC', name: 'Shelmith Chepng’etich', role: 'Quantity Surveyor',
+      task: 'Cost plan update after the third revision', project: 'marlow', hrs: 5 },
+    { initials: 'DM', name: 'Damaris Maina', role: 'CAD Technician',
+      task: 'Permit set markups', project: 'ashgrove', hrs: 7 },
+    { initials: 'DC', name: 'Deporah Chelimo', role: 'CAD Technician',
+      task: 'Setting-out drawings for the kitchen', project: 'ashgrove', hrs: 6 },
+    { initials: 'FA', name: 'Faazati Ali', role: 'Interior Designer',
+      task: 'Delivery check and snag walk', project: 'redfern', hrs: 5 },
+    { initials: 'MN', name: 'Martha Ndemo', role: 'Procurement Officer',
+      task: 'Chasing the three late orders with the vendor', project: 'redfern', hrs: 6 },
+    { initials: 'AO', name: 'Ace Oreal', role: 'Chief Creative Director',
+      task: 'Concept presentation, two directions', project: 'verdant', hrs: 4 },
+    { initials: 'SO', name: 'Sonia Omindi', role: 'Junior Interior Designer',
+      task: 'Material boards for the concept pack', project: 'verdant', hrs: 6 },
+    { initials: 'KF', name: 'Kerwyn Fourie', role: 'Creative Landscape Designer',
+      task: 'Planting plan, courtyard and entry', project: 'tatu', hrs: 5 },
+    { initials: 'KP', name: 'Kepha Mochama', role: 'Landscape CAD Technician',
+      task: 'Hardscape details, 100-series', project: 'tatu', hrs: 6 },
+    { initials: 'MM', name: 'Mae Muroki', role: 'Junior Interior Designer',
+      task: 'Snag list photos and close-out pack', project: 'brookside', hrs: 5 }
   ];
 
   var CAUSES = [
@@ -63,14 +88,6 @@
     { initials: 'KM', r: 0.70 }, { initials: 'MK', r: 0.72 }, { initials: 'EV', r: 0.75 }
   ];
 
-  var PROJECTS = [
-    { name: 'Halcyon House', phase: 'Contract admin', fee: 78, prog: 71, budget: '$412,000', milestone: 'Install', date: '12 Oct', lead: 'WG', leadName: 'Wanjeri' },
-    { name: 'Redfern Penthouse', phase: 'Procurement', fee: 61, prog: 64, budget: '$268,000', milestone: 'First delivery', date: '30 Sep', lead: 'FA', leadName: 'Faazati' },
-    { name: 'Marlow Hotel Lobby', phase: 'Design development', fee: 44, prog: 38, budget: '$980,000', milestone: 'Client review', date: '24 Sep', lead: 'EM', leadName: 'Elena' },
-    { name: 'Ashgrove Residence', phase: 'Construction docs', fee: 52, prog: 55, budget: '$196,000', milestone: 'Permit set', date: '3 Oct', lead: 'WG', leadName: 'Wanjeri' },
-    { name: 'Verdant Offices', phase: 'Schematic design', fee: 22, prog: 30, budget: '$540,000', milestone: 'Concept sign-off', date: '26 Sep', lead: 'AO', leadName: 'Ace' }
-  ];
-
   /* --------------------------------------------------------------- helpers */
 
   var SEQ = ['#184f95', '#1c5cab', '#256abf', '#2a78d6', '#3987e5', '#5598e7', '#6da7ec', '#86b6ef', '#9ec5f4'];
@@ -87,18 +104,91 @@
   }
   function lightStep(c) { return c === SEQ[5] || c === SEQ[6] || c === SEQ[7] || c === SEQ[8]; }
 
-  var state = { tab: 'all', openItem: '' };
+  function projectById(id) {
+    return PROJECTS.filter(function (p) { return p.id === id; })[0];
+  }
+
+  /* A compact version of the Projects module's phase rail: filled from the
+     start through the phase the project is in now. */
+  function miniRail(p) {
+    return '<span class="mini-rail">' +
+      PHASES.map(function (ph, i) {
+        var cls = i < p.at ? 'done' : (i === p.at ? 'now' : 'todo');
+        return '<span class="mini-step ' + cls + '"></span>';
+      }).join('') +
+      '<span class="mini-phase">' + PHASES[p.at] + '</span>' +
+    '</span>';
+  }
+
+  /* The row dropdown: phase history and the money. */
+  function projectDetail(p) {
+    var history = PHASES.map(function (ph, i) {
+      var rec = p.phases[i];
+      var cls = i < p.at ? 'done' : (i === p.at ? 'now' : 'todo');
+      var when = rec ? rec[0] + ' – ' + (rec[1] ? rec[1] : 'now') + ' · ' + rec[2] : 'Not started';
+      return '<div class="ph-row ' + cls + '">' +
+        '<span class="ph-dot"></span>' +
+        '<span><span class="ph-name">' + ph + '</span>' +
+        '<span class="ph-when">' + when + '</span></span>' +
+      '</div>';
+    }).join('');
+
+    var facts = [
+      ['Fee drawn', p.fee + '%'],
+      ['Work complete', p.prog + '%'],
+      ['Product budget', p.budget],
+      ['Started', p.started],
+      ['Lead', p.leadName],
+      ['Next', p.milestone + ' · ' + p.date]
+    ].map(function (f) {
+      return '<div class="fact"><span class="fact-key">' + f[0] + '</span>' +
+        '<span class="fact-val">' + f[1] + '</span></div>';
+    }).join('');
+
+    var onIt = TODAY.filter(function (t) { return t.project === p.id; });
+    var who = onIt.length
+      ? onIt.map(function (t) {
+          return '<div class="ov-flag">' +
+            '<span class="avatar-sm">' + t.initials + '</span>' +
+            '<span><span class="ov-flag-title">' + t.name + '</span>' +
+            '<span class="ov-flag-sub">' + t.task + '</span></span>' +
+          '</div>';
+        }).join('')
+      : '<div class="ov-flag-none">Nobody booked on this one today.</div>';
+
+    return '<div class="ov-detail">' +
+      '<div><div class="caps">Phase history</div><div class="ph-list">' + history + '</div></div>' +
+      '<div><div class="caps">The numbers</div><div class="facts">' + facts + '</div></div>' +
+      '<div><div class="caps">On it today</div><div class="ov-flags">' + who + '</div></div>' +
+    '</div>';
+  }
+
+  var state = { day: 'all', openProject: '' };
 
   /* ------------------------------------------------------------------ view */
 
+  /* How long a project has been running, as of the 14 Sep 2026 sample week. */
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function elapsed(started) {
+    var bits = started.split(' ');
+    var d0 = new Date(2026, MONTHS.indexOf(bits[1]), parseInt(bits[0], 10));
+    var days = Math.round((new Date(2026, 8, 14) - d0) / 86400000);
+    if (days < 31) { return Math.max(1, Math.round(days / 7)) + ' weeks in'; }
+    var m = Math.round(days / 30.4);
+    return m + ' month' + (m === 1 ? '' : 's') + ' in';
+  }
+
   function view() {
     var h = [];
+    var shown = TODAY.filter(function (t) { return state.day === 'all' || t.project === state.day; });
+    var hours = TODAY.reduce(function (a, t) { return a + t.hrs; }, 0);
 
     h.push('<div class="header-row">' +
       '<div>' +
         '<div class="caps">Monday, 14 September 2026</div>' +
         '<h1 class="page-title">Good morning, Eva</h1>' +
-        '<p class="page-sub">18 people · 5 active projects · 6 things want a decision</p>' +
+        '<p class="page-sub">' + TODAY.length + ' people at work today · ' + hours +
+          ' hours booked · ' + PROJECTS.length + ' projects running</p>' +
       '</div>' +
       '<div class="period-note">Money shown for this quarter</div>' +
     '</div>');
@@ -133,40 +223,64 @@
       '</div>' +
     '</div>');
 
-    var shown = ITEMS.filter(function (x) { return state.tab === 'all' || x.cat === state.tab; });
+    var counts = PHASES.map(function (ph, i) {
+      return PROJECTS.filter(function (p) { return p.at === i; }).length;
+    });
+    var tints = ['28%', '44%', '60%', '78%', '100%'];
+    var statusBar = '<div class="status-bar">' +
+        PHASES.map(function (ph, i) {
+          if (!counts[i]) { return ''; }
+          return '<span class="sb-seg" style="width:' + (counts[i] / PROJECTS.length * 100) +
+            '%; background:color-mix(in srgb, var(--accent) ' + tints[i] + ', transparent);" ' +
+            'title="' + ph + ': ' + counts[i] + '"></span>';
+        }).join('') +
+      '</div>' +
+      '<div class="sb-legend">' +
+        PHASES.map(function (ph, i) {
+          return '<span class="sb-key">' +
+            '<span class="sb-dot" style="background:color-mix(in srgb, var(--accent) ' + tints[i] + ', transparent);"></span>' +
+            ph + ' <b>' + counts[i] + '</b></span>';
+        }).join('') +
+      '</div>';
 
+    /* ---- today ---- */
     h.push('<div class="rule-top two-col">' +
       '<section>' +
         '<div class="section-head"><div>' +
-          '<div class="caps">Needs a decision</div>' +
-          '<h2 class="section-title">What wants you today</h2>' +
-          '<p class="section-sub">Pulled from every part of the system. Click anything to see what happens next.</p>' +
+          '<div class="caps">Today</div>' +
+          '<h2 class="section-title">Who is on what</h2>' +
+          '<p class="section-sub">Everyone booked in today, the job they are on, and the project it belongs to.</p>' +
         '</div></div>' +
-        '<div class="tabs" role="group" aria-label="Filter by kind">' +
-          TABS.map(function (t) {
-            var on = state.tab === t.id;
-            var count = t.id === 'all' ? ITEMS.length : ITEMS.filter(function (x) { return x.cat === t.id; }).length;
+        '<div class="tabs" role="group" aria-label="Filter by project">' +
+          [{ id: 'all', label: 'Everyone' }].concat(PROJECTS.map(function (p) {
+            return { id: p.id, label: p.name };
+          })).map(function (c) {
+            var on = state.day === c.id;
+            var count = c.id === 'all' ? TODAY.length
+              : TODAY.filter(function (t) { return t.project === c.id; }).length;
+            if (!count) { return ''; }
             return '<button type="button" class="tab' + (on ? ' active' : '') + '" aria-pressed="' + on +
-              '" data-act="tab" data-val="' + t.id + '">' + t.label +
+              '" data-act="day" data-val="' + c.id + '">' + c.label +
               ' <span class="tab-count">' + count + '</span></button>';
           }).join('') +
         '</div>' +
-        '<div style="margin-top:8px;">' +
-          shown.map(function (it) {
-            var open = state.openItem === it.id;
-            return '<button type="button" class="item' + (open ? ' open' : '') + '" data-act="item" data-val="' + it.id + '">' +
-              '<span class="item-dot" style="background:' + it.color + ';"></span>' +
-              '<span class="item-body">' +
-                '<span class="item-kind">' + it.kind + '</span>' +
-                '<span class="item-title">' + it.title + '</span>' +
-                '<span class="item-sub">' + it.sub + '</span>' +
-                (open ? '<span class="item-next">' + it.next + '</span>' : '') +
+        statusBar +
+        '<div class="today-list">' +
+          shown.map(function (t) {
+            var p = projectById(t.project);
+            return '<div class="today-row">' +
+              '<span class="avatar">' + t.initials + '</span>' +
+              '<span class="today-who">' +
+                '<span class="today-name">' + t.name + '</span>' +
+                '<span class="today-role">' + t.role + '</span>' +
               '</span>' +
-              '<span class="item-right">' +
-                '<span class="item-amount">' + it.amount + '</span>' +
-                '<span class="item-action">' + it.action + ' →</span>' +
+              '<span class="today-task">' + t.task + '</span>' +
+              '<span class="today-proj">' +
+                '<span class="today-proj-name">' + p.name + '</span>' +
+                miniRail(p) +
+                '<span class="today-hrs">' + t.hrs + ' hrs</span>' +
               '</span>' +
-            '</button>';
+            '</div>';
           }).join('') +
         '</div>' +
       '</section>' +
@@ -204,23 +318,31 @@
       '</aside>' +
     '</div>');
 
+    /* ---- projects: status bar + table ---- */
     h.push('<section class="rule-top">' +
       '<div class="section-head"><div>' +
         '<div class="caps">Active work</div>' +
         '<h2 class="section-title">Projects</h2>' +
-        '<p class="section-sub">The bar is the fee you have drawn. The line is how far along the work actually is. Fee ahead of progress is the early warning.</p>' +
+        '<p class="section-sub">The bar in each row is the fee you have drawn; the line is how far along the work actually is. Fee ahead of progress is the early warning.</p>' +
       '</div></div>' +
       '<table class="ptable"><thead><tr>' +
-        '<th style="width:24%;">Project</th><th style="width:28%;">Fee drawn vs. progress</th>' +
-        '<th style="width:14%;">Product budget</th><th style="width:20%;">Next milestone</th><th style="width:14%;">Lead</th>' +
+        '<th style="width:28%;">Project</th><th style="width:28%;">Fee drawn vs. progress</th>' +
+        '<th style="width:13%;">Product budget</th><th style="width:16%;">Started</th><th style="width:15%;">Lead</th>' +
       '</tr></thead><tbody>' +
         PROJECTS.map(function (p) {
           var gap = p.fee - p.prog;
           var ahead = gap > 4;
           var note = ahead ? 'Fee is ' + gap + ' points ahead of the work'
             : (gap < -4 ? 'Work is ' + Math.abs(gap) + ' points ahead of the fee' : 'Fee and progress in step');
-          return '<tr>' +
-            '<td><div class="p-name">' + p.name + '</div><div class="p-phase">' + p.phase + '</div></td>' +
+          var open = state.openProject === p.id;
+          return '<tr class="ptable-row' + (open ? ' open' : '') + '">' +
+            '<td>' +
+              '<button type="button" class="p-name-btn" aria-expanded="' + open +
+                '" data-act="proj" data-val="' + p.id + '">' +
+                '<span class="p-name">' + p.name + '</span>' +
+                '<svg class="chev' + (open ? ' open' : '') + '" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
+              '</button>' + miniRail(p) +
+            '</td>' +
             '<td>' +
               '<div class="burn">' +
                 '<span class="burn-fill" style="width:' + p.fee + '%; background:' +
@@ -232,9 +354,10 @@
                 (ahead ? 'var(--serious)' : 'var(--ink-3)') + ';">' + note + '</div>' +
             '</td>' +
             '<td class="num">' + p.budget + '</td>' +
-            '<td><div>' + p.milestone + '</div><div class="p-phase">' + p.date + '</div></td>' +
+            '<td><div>' + p.started + '</div><div class="p-phase">' + elapsed(p.started) + '</div></td>' +
             '<td><span class="lead-cell"><span class="avatar-sm">' + p.lead + '</span>' + p.leadName + '</span></td>' +
-          '</tr>';
+          '</tr>' +
+          '<tr class="det-row' + (open ? '' : ' hidden') + '"><td colspan="5">' + projectDetail(p) + '</td></tr>';
         }).join('') +
       '</tbody></table>' +
     '</section>');
@@ -253,8 +376,8 @@
     var act = el.getAttribute('data-act');
     var val = el.getAttribute('data-val');
 
-    if (act === 'tab') { state.tab = val; state.openItem = ''; }
-    else if (act === 'item') { state.openItem = (state.openItem === val ? '' : val); }
+    if (act === 'day') { state.day = val; }
+    else if (act === 'proj') { state.openProject = (state.openProject === val ? '' : val); }
     else { return; }
 
     render();

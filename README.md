@@ -1,16 +1,23 @@
 # Lehem Interiors — operations dashboard
 
-Two working screens of the interiors ERP, as a plain static site. No build step,
+Five working screens of the interiors ERP, as a plain static site. No build step,
 no framework, no dependencies.
 
 ```
 lehem-erp/
 ├── index.html        Overview — the morning screen
+├── projects.html     Projects — every job, its phases and where it sits now
+├── desk.html         Service Desk — tickets, estimates and the revision gate
 ├── workload.html     Time & Workload — utilization and capacity
-├── css/app.css       All styling for both screens
+├── crm.html          CRM — leads funnel, pipeline and follow-ups
+├── css/app.css       All styling for every screen
 ├── js/nav.js         Sidebar + mobile hamburger
 ├── js/overview.js    Overview data, rendering and interactions
+├── js/projects.js    Project records, phase rails and filters
+├── js/desk-data.js   People, work types, phases and the seeded tickets
+├── js/desk.js        Ticket listing, the four spec rules, capacity
 ├── js/workload.js    Workload data model, calculations and interactions
+├── js/crm.js         Leads, funnel maths and pipeline interactions
 └── assets/lehem-logo.png
 ```
 
@@ -100,3 +107,31 @@ label for its plain-English definition.
   menu below 860px.
 - Disabled nav items are real `disabled` buttons, so they are skipped by
   keyboard navigation.
+
+## What the Service Desk enforces
+
+The screen follows the data ingestion spec rather than decorating it.
+
+The time bucket (`bill`, `fee`, `sourcing`, `over`) is derived at write time from
+the ticket's work type and its phase's fee type, and shown as a numbered chain in
+the detail panel. Nobody picks it, so the utilization figure on Time & Workload
+cannot be talked up.
+
+A ticket cannot leave intake until it has an assignee, an estimate and a date
+window. The estimate is the forward capacity allocation — it is what the capacity
+rail is built from — so a ticket without one carries no load and says so.
+
+A revision ticket on a phase that has used its revision allowance cannot be
+assigned until someone records a decision: raise a change order, or absorb it
+with one of four reason codes. Its row is locked until they do.
+
+Opening a phase spawns its standard ticket set with an assignee and an estimate
+suggested for each — the assignee picked from who can do that kind of work and
+who has most room that week.
+
+## Sample data
+
+Every project, ticket, lead, estimate and figure in these screens is invented.
+The eighteen people are the real Lehem team, so nothing here should be presented
+as a measurement of anyone's actual work. Replace `js/desk-data.js`, and the data
+arrays at the top of each of the other `js/` files, to point at real records.
