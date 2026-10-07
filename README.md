@@ -1,6 +1,6 @@
 # Lehem Interiors — operations dashboard
 
-Five working screens of the interiors ERP, as a plain static site. No build step,
+Six working screens of the interiors ERP, as a plain static site. No build step,
 no framework, no dependencies.
 
 ```
@@ -9,17 +9,34 @@ lehem-erp/
 ├── projects.html     Projects — every job, its phases and where it sits now
 ├── desk.html         Service Desk — tickets, estimates and the revision gate
 ├── workload.html     Time & Workload — utilization and capacity
+├── financials.html   Financials — contracting, invoices and collection
 ├── crm.html          CRM — leads funnel, pipeline and follow-ups
 ├── css/app.css       All styling for every screen
 ├── js/nav.js         Sidebar + mobile hamburger
-├── js/overview.js    Overview data, rendering and interactions
+├── js/desk-data.js   People, work types, phases, contracts and the seeded tickets
+├── js/billing.js     The billing spine — invoice lines, time entries, buckets
+├── js/crm-data.js    Leads and funnel stages
+├── js/feed.js        The follow-up feed, on every screen
+├── js/overview.js    Overview scorecards, the day roster and project status
 ├── js/projects.js    Project records, phase rails and filters
-├── js/desk-data.js   People, work types, phases and the seeded tickets
 ├── js/desk.js        Ticket listing, the four spec rules, capacity
 ├── js/workload.js    Workload data model, calculations and interactions
+├── js/financials.js  Phase contracting, the invoice ledger and aging
 ├── js/crm.js         Leads, funnel maths and pipeline interactions
 └── assets/lehem-logo.png
 ```
+
+## The follow-up feed
+
+Bottom right of every screen, a panel of things the signed-in person has to
+chase. Nothing in it is authored: an item exists because a due date passed,
+because a ticket is in intake with no owner, because the revision gate is shut
+on it, or because an invoice went past terms. It opens once per browser tab,
+collapses to a bell with a count, and gets out of the way as soon as the page
+is touched. The rules live in `js/feed.js`.
+
+The sample data is the week of 14–18 September 2026, read as at Friday the
+18th — the same "now" the collections aging uses, so the two never disagree.
 
 ## Running it locally
 

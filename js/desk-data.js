@@ -156,6 +156,52 @@ var DESK = (function () {
       } }
   ];
 
+  /* ------------------------------------------------------------ the rates
+     Suggested starting rates by role, in dollars an hour. The contracting
+     user sets the actual rate on each line — these only seed the field. */
+
+  var RATE_BY_ROLE = {
+    'Creative lead': 120,
+    'Interior designer': 85,
+    'CAD technician': 65,
+    'Landscape': 80,
+    'Procurement': 60,
+    'Quantity surveyor': 95,
+    'Project coordinator': 70,
+    'Business & admin': 50
+  };
+
+  /* --------------------------------------------------------- the contracts
+     Signed at Won. The design fee is allocated per phase, and flat-fee
+     invoice lines draw down against it (§3, event 2). */
+
+  var CONTRACTS = {
+    halcyon: { signed: '6 Jan 2026', fee: { concept: 3600, initial: 9200, detail: 12400, site: 8200, handover: 2200 } },
+    redfern: { signed: '24 Feb 2026', fee: { concept: 2800, initial: 6800, detail: 8800, site: 5800, handover: 1600 } },
+    marlow: { signed: '11 May 2026', fee: { concept: 5200, initial: 13600, detail: 18400, site: 11600, handover: 3200 } },
+    ashgrove: { signed: '2 Mar 2026', fee: { concept: 2200, initial: 5400, detail: 7200, site: 4800, handover: 1200 } },
+    tatu: { signed: '6 Jul 2026', fee: { concept: 4200, initial: 10800, detail: 14200, site: 9200, handover: 2400 } },
+    verdant: { signed: null, fee: { concept: 0, initial: 7600, detail: 10400, site: 6600, handover: 1800 } },
+    brookside: { signed: '19 Jan 2026', fee: { concept: 1600, initial: 3800, detail: 5200, site: 3400, handover: 3000 } }
+  };
+
+  /* Which template line items are normally a flat deliverable rather than
+     hourly production. The contracting user can override either way. */
+  var FLAT_BY_TYPE = {
+    concept: true, present: true, spec: true,
+    dwg100: false, dwg200: false, dwg300: false, revision: false,
+    sitevisit: false, rfi: false, submittal: false, snag: false, valuation: false,
+    enquiry: false, followup: false, delivery: false, reselect: false
+  };
+
+  /* Invoice states, in the order they move through. */
+  var INVOICE_STATES = [
+    { id: 'draft', name: 'Draft', note: 'Contracted, not yet sent' },
+    { id: 'issued', name: 'Issued', note: 'Sent to the client' },
+    { id: 'part', name: 'Part paid', note: 'Some of it has come in' },
+    { id: 'paid', name: 'Paid', note: 'Settled' }
+  ];
+
   /* ------------------------------------------------------------- the states */
 
   var STATES = [
@@ -268,6 +314,8 @@ var DESK = (function () {
     PEOPLE: PEOPLE, LEAVE: LEAVE, WORK_TYPES: WORK_TYPES, BUCKETS: BUCKETS,
     FEE_TYPES: FEE_TYPES, PHASE_KEYS: PHASE_KEYS, PHASE_NAMES: PHASE_NAMES,
     PHASE_SERIES: PHASE_SERIES, PROJECTS: PROJECTS, STATES: STATES,
-    TEMPLATES: TEMPLATES, TICKETS: TICKETS
+    TEMPLATES: TEMPLATES, TICKETS: TICKETS,
+    RATE_BY_ROLE: RATE_BY_ROLE, CONTRACTS: CONTRACTS,
+    FLAT_BY_TYPE: FLAT_BY_TYPE, INVOICE_STATES: INVOICE_STATES
   };
 })();

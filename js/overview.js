@@ -4,6 +4,9 @@
 (function () {
   'use strict';
 
+  /* The scorecards read the same records the module screens do. */
+  BILL.seed(DESK.TICKETS);
+
   /* ------------------------------------------------------------------ data */
 
   /* Same phase spine as the Projects module. */
@@ -79,6 +82,11 @@
     { name: 'Quoting error', amount: 1500 }
   ];
 
+  function esc(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   var TEAM = [
     { initials: 'AO', r: 0.68 }, { initials: 'EM', r: 0.74 }, { initials: 'WG', r: 1.02 },
     { initials: 'FA', r: 0.90 }, { initials: 'SO', r: 0.86 }, { initials: 'MM', r: 0.84 },
@@ -136,7 +144,7 @@
     var facts = [
       ['Fee drawn', p.fee + '%'],
       ['Work complete', p.prog + '%'],
-      ['Product budget', p.budget],
+      ['Project value', p.budget],
       ['Started', p.started],
       ['Lead', p.leadName],
       ['Next', p.milestone + ' · ' + p.date]
@@ -185,7 +193,7 @@
 
     h.push('<div class="header-row">' +
       '<div>' +
-        '<div class="caps">Monday, 14 September 2026</div>' +
+        '<div class="caps">Friday, 18 September 2026</div>' +
         '<h1 class="page-title">Good morning, Eva</h1>' +
         '<p class="page-sub">' + TODAY.length + ' people at work today · ' + hours +
           ' hours booked · ' + PROJECTS.length + ' projects running</p>' +
@@ -193,34 +201,118 @@
       '<div class="period-note">Money shown for this quarter</div>' +
     '</div>');
 
-    h.push('<div class="rule-top money">' +
-      '<div class="money-cell">' +
-        '<div class="caps">Profit on design fees</div>' +
-        '<div class="money-value">$186,400</div>' +
-        '<div class="money-meta">42% of fees billed · up $12,300 on last quarter</div>' +
-      '</div>' +
-      '<div class="money-cell">' +
-        '<div class="caps">Profit on products</div>' +
-        '<div class="money-value">$132,000</div>' +
-        '<div class="money-meta">26% after freight, storage and delivery · $153 per hour of ordering work</div>' +
-      '</div>' +
-      '<div class="money-cell">' +
-        '<div class="caps">Client money you hold</div>' +
-        '<div class="money-value">$418,000</div>' +
-        '<div class="split-track">' +
-          '<span class="split-fill" style="left:0; width:70%; background:var(--b1);"></span>' +
-          '<span class="split-fill" style="left:70%; width:30%; background:var(--b3);"></span>' +
+    /* ---- the scorecards: one per module, in lifecycle order ----
+       Every figure here is computed from the same records the module screens
+       read, so the front page cannot drift from them. */
+
+    var M = BILL.money;
+    var invs = BILL.store.invoices;
+    var openInvoice = function (i) { return i.state === 'issued' || i.state === 'part'; };
+    var owedOn = function (i) { return BILL.invoiceValue(i) - (i.paid || 0); };
+
+    /* CRM */
+    var liveLeads = CRM.openLeads();
+    var pipeline = CRM.sum(liveLeads);
+    var weighted = CRM.weighted();
+    var nextUp = CRM.inStage('negotiation').length + CRM.inStage('proposal').length;
+
+    /* Service desk */
+    var deskTickets = DESK.TICKETS;
+    var openStates = ['assigned', 'progress', 'blocked', 'review'];
+    /* The same week-share the Service Desk counts: an estimate spread across
+       its window, and only the part that lands in this week. */
+    var WEEK_A = new Date(2026, 8, 14), WEEK_B = new Date(2026, 8, 18);
+    function parseDay(v) {
+      if (!v) { return null; }
+      var bits = String(v).trim().split(' ');
+      var m = MONTHS.indexOf(bits[1]), d = parseInt(bits[0], 10);
+      return (m === -1 || !d) ? null : new Date(2026, m, d);
+    }
+    function bizDays(a, b) {
+      var n = 0, d = new Date(a.getTime());
+      while (d <= b) { if (d.getDay() !== 0 && d.getDay() !== 6) { n++; } d.setDate(d.getDate() + 1); }
+      return n;
+    }
+    function weekShare(t) {
+      if (!t.est || !t.start || !t.due) { return 0; }
+      var a = parseDay(t.start), b = parseDay(t.due);
+      if (!a || !b) { return 0; }
+      var total = bizDays(a, b);
+      if (!total) { return 0; }
+      var lo = a > WEEK_A ? a : WEEK_A, hi = b < WEEK_B ? b : WEEK_B;
+      return lo > hi ? 0 : t.est / total * bizDays(lo, hi);
+    }
+    /* Utilization, from the derived buckets: the share of logged hours that
+       somebody is paying for. Nobody picks a bucket, so this figure cannot be
+       talked up — which is the only reason it is worth putting on a front page. */
+    var byBucket = { bill: 0, fee: 0, sourcing: 0, over: 0 };
+    deskTickets.forEach(function (t) {
+      byBucket[BILL.derive(t).bucket] += BILL.loggedOnTicket(t.id);
+    });
+    var loggedTotal = byBucket.bill + byBucket.fee + byBucket.sourcing + byBucket.over;
+    var pct = function (n) { return loggedTotal ? Math.round(n / loggedTotal * 100) : 0; };
+    var earning = byBucket.bill + byBucket.fee;
+    /* Financials */
+    var wip = invs.filter(function (i) { return i.state === 'draft'; })
+      .reduce(function (a, i) { return a + BILL.invoiceValue(i); }, 0);
+    var wipFc = invs.filter(function (i) { return i.state === 'draft'; })
+      .reduce(function (a, i) { return a + BILL.invoiceForecast(i); }, 0);
+    var owedTotal = invs.filter(openInvoice).reduce(function (a, i) { return a + owedOn(i); }, 0);
+    var overdue = invs.filter(function (i) { return BILL.isOverdue(i); })
+      .reduce(function (a, i) { return a + owedOn(i); }, 0);
+    var overdueN = invs.filter(function (i) { return BILL.isOverdue(i); }).length;
+    var owedN = invs.filter(openInvoice).filter(function (i) { return owedOn(i) > 0; }).length;
+
+    /* A card's optional bar is a stacked part-to-whole: segments in a fixed
+       order, each with its own key, so nothing is carried by colour alone. */
+    function bar(segs) {
+      var total = segs.reduce(function (a, x) { return a + x.v; }, 0) || 1;
+      return '<div class="split-track">' +
+          segs.map(function (x) {
+            return '<span class="split-fill" style="width:' + (x.v / total * 100) +
+              '%; background:' + x.color + ';"></span>';
+          }).join('') +
         '</div>' +
         '<div class="split-keys">' +
-          '<span class="split-key"><span class="dot" style="background:var(--b1);"></span>$291k already spent on orders</span>' +
-          '<span class="split-key"><span class="dot" style="background:var(--b3);"></span>$127k still free</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="money-cell">' +
-        '<div class="caps">Expected in, next 30 days</div>' +
-        '<div class="money-value">$164,500</div>' +
-        '<div class="money-meta">7 invoices · $38,400 of it already overdue</div>' +
-      '</div>' +
+          segs.filter(function (x) { return x.v > 0; }).map(function (x) {
+            return '<span class="split-key"><span class="dot" style="background:' + x.color +
+              ';"></span>' + x.label + '</span>';
+          }).join('') +
+        '</div>';
+    }
+
+    function card(href, cap, value, meta, extra) {
+      return '<a class="money-cell score" href="' + href + '">' +
+        '<div class="caps">' + cap + '</div>' +
+        '<div class="money-value">' + value + '</div>' +
+        '<div class="money-meta">' + meta + '</div>' +
+        (extra || '') +
+      '</a>';
+    }
+
+    /* The split bar carries the one number the card cannot: how much of what
+       is owed has already gone past its date. */
+
+
+    h.push('<div class="rule-top money">' +
+      card('crm.html', 'Pipeline', '$' + (weighted / 1000).toFixed(2) + 'M',
+        liveLeads.length + ' live enquiries worth $' + (pipeline / 1000).toFixed(2) +
+        'M at full value · ' + nextUp + ' close to a decision') +
+      card('workload.html', 'Utilization', pct(earning) + '%',
+        'of ' + BILL.hrs(loggedTotal) + ' logged · the share somebody is paying for',
+        bar([
+          { v: byBucket.bill, color: 'var(--b1)', label: pct(byBucket.bill) + '% billed by the hour' },
+          { v: byBucket.fee, color: 'var(--b3)', label: pct(byBucket.fee) + '% inside a fee' },
+          { v: byBucket.sourcing, color: 'var(--b2)', label: pct(byBucket.sourcing) + '% FF&amp;E, unpriced' },
+          { v: byBucket.over, color: 'var(--grid)', label: pct(byBucket.over) + '% overhead' }
+        ])) +
+      card('financials.html', 'Work in progress', M(wip),
+        'Earned on draft invoices, not yet sent · ' + M(wipFc) + ' forecast when complete') +
+      card('financials.html', 'Owed by clients', M(owedTotal), owedN + ' invoices out',
+        bar([
+          { v: owedTotal - overdue, color: 'var(--b1)', label: M(owedTotal - overdue) + ' within terms' },
+          { v: overdue, color: 'var(--crit)', label: M(overdue) + ' overdue' }
+        ])) +
     '</div>');
 
     var counts = PHASES.map(function (ph, i) {
@@ -305,12 +397,20 @@
             '<div><span class="panel-num">55%</span><span class="panel-cap">billed as fees</span></div>' +
             '<div><span class="panel-num">2</span><span class="panel-cap">booked past full</span></div>' +
           '</div>' +
+          /* Each chip opens the service desk filtered to that person, so the
+             question "who is overbooked?" leads straight to what they are on. */
           '<div class="team-strip">' +
             TEAM.map(function (p) {
               var color = seqColor(p.r);
-              return '<span class="team-chip" style="background:' + color + '; color:' +
+              var who = DESK.PEOPLE.filter(function (x) { return x.initials === p.initials; })[0];
+              var pct = Math.round(p.r * 100);
+              var label = (who ? who.name : p.initials) + ' — ' + pct + '% booked' +
+                (p.r > 1.0 ? ', past full' : '') + '. Open their tickets.';
+              return '<a class="team-chip" href="desk.html' +
+                (who ? '?who=' + who.id : '') + '" title="' + esc(label) + '"' +
+                ' style="background:' + color + '; color:' +
                 (lightStep(color) ? '#0d0d0c' : '#f5f2ea') + ';">' + p.initials +
-                (p.r > 1.0 ? '<span class="team-flag"></span>' : '') + '</span>';
+                (p.r > 1.0 ? '<span class="team-flag"></span>' : '') + '</a>';
             }).join('') +
           '</div>' +
           '<a href="workload.html" class="panel-link">Open time &amp; workload</a>' +
@@ -323,17 +423,13 @@
       '<div class="section-head"><div>' +
         '<div class="caps">Active work</div>' +
         '<h2 class="section-title">Projects</h2>' +
-        '<p class="section-sub">The bar in each row is the fee you have drawn; the line is how far along the work actually is. Fee ahead of progress is the early warning.</p>' +
+        '<p class="section-sub">Every job that is open, the phase it has reached, and who is carrying it. Open a row for the detail.</p>' +
       '</div></div>' +
       '<table class="ptable"><thead><tr>' +
-        '<th style="width:28%;">Project</th><th style="width:28%;">Fee drawn vs. progress</th>' +
-        '<th style="width:13%;">Product budget</th><th style="width:16%;">Started</th><th style="width:15%;">Lead</th>' +
+        '<th style="width:40%;">Project</th>' +
+        '<th style="width:16%;">Project value</th><th style="width:20%;">Started</th><th style="width:24%;">Lead</th>' +
       '</tr></thead><tbody>' +
         PROJECTS.map(function (p) {
-          var gap = p.fee - p.prog;
-          var ahead = gap > 4;
-          var note = ahead ? 'Fee is ' + gap + ' points ahead of the work'
-            : (gap < -4 ? 'Work is ' + Math.abs(gap) + ' points ahead of the fee' : 'Fee and progress in step');
           var open = state.openProject === p.id;
           return '<tr class="ptable-row' + (open ? ' open' : '') + '">' +
             '<td>' +
@@ -343,21 +439,11 @@
                 '<svg class="chev' + (open ? ' open' : '') + '" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
               '</button>' + miniRail(p) +
             '</td>' +
-            '<td>' +
-              '<div class="burn">' +
-                '<span class="burn-fill" style="width:' + p.fee + '%; background:' +
-                  (ahead ? 'var(--serious)' : 'var(--b1)') + ';"></span>' +
-                '<span class="burn-mark" style="left:' + p.prog + '%;"></span>' +
-                '<span class="burn-tip">' + p.fee + '% of the fee drawn · work ' + p.prog + '% done</span>' +
-              '</div>' +
-              '<div class="p-phase" style="margin-top:6px; color:' +
-                (ahead ? 'var(--serious)' : 'var(--ink-3)') + ';">' + note + '</div>' +
-            '</td>' +
             '<td class="num">' + p.budget + '</td>' +
             '<td><div>' + p.started + '</div><div class="p-phase">' + elapsed(p.started) + '</div></td>' +
             '<td><span class="lead-cell"><span class="avatar-sm">' + p.lead + '</span>' + p.leadName + '</span></td>' +
           '</tr>' +
-          '<tr class="det-row' + (open ? '' : ' hidden') + '"><td colspan="5">' + projectDetail(p) + '</td></tr>';
+          '<tr class="det-row' + (open ? '' : ' hidden') + '"><td colspan="4">' + projectDetail(p) + '</td></tr>';
         }).join('') +
       '</tbody></table>' +
     '</section>');

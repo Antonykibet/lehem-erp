@@ -15,6 +15,11 @@
   var PHASE_NAMES = DESK.PHASE_NAMES, PHASE_KEYS = DESK.PHASE_KEYS;
   var TICKETS = DESK.TICKETS.slice();
 
+  /* Billing is the spine: an invoice line was priced at contracting, and this
+     screen reads from it rather than deciding anything about money itself. */
+  BILL.seed(TICKETS);
+  var money = BILL.money;
+
   var REASONS = ['Scope never priced', 'Goodwill', 'Reselection', 'Quoting error'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -33,34 +38,10 @@
   }
 
   /* ------------------------------------------------ §1 the bucket derivation
-     Returned with its working, because the whole point of the rule is that
-     anyone can see why an hour landed where it did. */
-
-  function derive(t) {
-    var w = wt(t.type);
-    if (w.bucket !== 'phase') {
-      return {
-        bucket: w.bucket,
-        steps: [
-          w.group + ' work type — the bucket is fixed on the type',
-          'Bucket: ' + w.bucket
-        ]
-      };
-    }
-    var rec = phaseRec(t);
-    if (!rec) {
-      return { bucket: 'over', steps: ['No phase — treated as overhead', 'Bucket: over'] };
-    }
-    var ft = FEE[rec.fee];
-    return {
-      bucket: ft.bucket,
-      steps: [
-        w.group + ' work type — look the bucket up from the phase',
-        PHASE_NAMES[t.ph] + ' is charged ' + ft.label.toLowerCase(),
-        'Bucket: ' + ft.bucket
-      ]
-    };
-  }
+     Lives in billing.js now, because the answer comes from the ticket's
+     invoice line — which was priced once, at contracting. The person logging
+     hours still chooses nothing. */
+  function derive(t) { return BILL.derive(t); }
 
   /* --------------------------------------------------- §5.4 the revision gate
      A revision ticket on a phase that has used its allowance cannot be
@@ -132,6 +113,8 @@
     if (n === null || n === undefined) { return '—'; }
     return (Math.round(n * 10) / 10) + 'h';
   }
+  /* The ticket does not hold a running total — the time entries do. */
+  function logged(t) { return BILL.loggedOnTicket(t.id); }
   /* "a, b and c" rather than "a and b and c". */
   function listOf(a) {
     if (a.length < 3) { return a.join(' and '); }
@@ -153,13 +136,20 @@
 
   /* ------------------------------------------------------------------ state */
 
+  /* The Overview's team chips link here with ?who=, so arriving from one
+     lands on that person's tickets rather than on everybody's. */
+  function whoFromUrl() {
+    var m = /[?&]who=([a-z]{2})\b/.exec(window.location.search);
+    if (!m) { return 'all'; }
+    return P.some(function (p) { return p.id === m[1]; }) ? m[1] : 'all';
+  }
+
   var state = {
     project: 'all',
-    who: 'all',
+    who: whoFromUrl(),
     open: '',          /* ticket id whose detail panel is showing */
     gate: null,        /* { id, choice, reason, error } */
     log: null,         /* { id, hours, error } */
-    tmpl: null,        /* { project, phase, error } */
     flash: '',
     sort: 'due'
   };
@@ -211,7 +201,7 @@
   function estCell(t) {
     if (!t.est) { return '<span class="dk-warn-text">no estimate</span>'; }
     return '<span class="est-cell">' +
-      '<span class="est-fig">' + hrs(t.logged || 0) + ' of ' + hrs(t.est) + '</span>' +
+      '<span class="est-fig">' + hrs(logged(t)) + ' of ' + hrs(t.est) + '</span>' +
       '<span class="est-logged">' + hrs(weekHours(t)) + ' this week</span>' +
     '</span>';
   }
@@ -243,7 +233,7 @@
         var pr = proj(t.p), w = wt(t.type), g = gate(t), d = derive(t);
         var isOpenRow = state.open === t.id;
         var locked = !!(g && g.open);
-        var over = t.est && t.logged > t.est;
+        var over = t.est && logged(t) > t.est;
         return '<tr class="dk-row' + (isOpenRow ? ' open' : '') + (locked ? ' gated' : '') + '">' +
           '<td><button type="button" class="dk-row-btn" aria-expanded="' + isOpenRow +
             '" data-act="open" data-val="' + t.id + '">' +
@@ -273,15 +263,19 @@
     var rec = phaseRec(t);
     var p = person(t.who);
 
+    var line = BILL.lineFor(t.id);
+    var inv = line ? BILL.invoiceOf(line.id) : null;
     var facts = [
       ['Work type', w.name],
       ['Group', w.group],
       ['Project', pr ? pr.name : 'None — business work'],
       ['Phase', t.ph ? PHASE_NAMES[t.ph] + (DESK.PHASE_SERIES[t.ph] ? ' · ' + DESK.PHASE_SERIES[t.ph] : '') : '—'],
-      ['Phase charged', rec ? FEE[rec.fee].label : '—'],
+      ['Invoice line', line ? line.id + ' on ' + line.invoice : 'none — not contracted'],
+      ['Charged', line ? (line.basis === 'rate' ? money(line.rate) + ' an hour'
+        : 'flat fee of ' + money(line.flat)) : 'nothing'],
       ['Assignee', p ? p.name : 'Unassigned'],
       ['Estimate', t.est ? hrs(t.est) : 'Not set'],
-      ['Logged', hrs(t.logged || 0)],
+      ['Logged', hrs(logged(t))],
       ['Window', t.start ? t.start + ' – ' + t.due : 'Not set'],
       ['This week', t.est ? hrs(weekHours(t)) + ' of capacity' : 'Invisible to the heatmap']
     ].map(function (f) {
@@ -357,10 +351,46 @@
           ' lead, so these hours can be read back as cost per win.</div>' : '');
     }
 
-    return '<div class="dk-detail">' +
+    /* What this ticket is worth, read straight off its invoice line. */
+    var worth;
+    if (!line) {
+      worth = '<div class="worth none">' +
+        '<div class="worth-fig">' + (w.bucket === 'sourcing' ? 'Unpriced' : 'Not contracted') + '</div>' +
+        '<div class="worth-sub">' + (w.bucket === 'sourcing'
+          ? 'FF&amp;E coordination with no invoice line. The hours are real; nobody is paying for them.'
+          : 'No invoice line covers this work, so the hours land in overhead.') + '</div>' +
+      '</div>';
+    } else if (line.basis === 'rate') {
+      var lh = BILL.loggedHours(line);
+      worth = '<div class="worth">' +
+        '<div class="worth-fig">' + money(BILL.value(line)) + '</div>' +
+        '<div class="worth-sub">' + hrs(lh) + ' logged at ' + money(line.rate) + ' an hour · ' +
+          money(BILL.forecast(line)) + ' forecast at ' + hrs(line.est) + '</div>' +
+        '<div class="worth-track"><span class="worth-fill' +
+          (line.est && lh > line.est ? ' over' : '') + '" style="width:' +
+          Math.min(100, line.est ? lh / line.est * 100 : 0) + '%;"></span></div>' +
+        '<div class="worth-note">' + (line.est && lh > line.est
+          ? hrs(lh - line.est) + ' past the estimate, and still billing'
+          : 'Every hour logged adds to it') + '</div>' +
+      '</div>';
+    } else {
+      worth = '<div class="worth">' +
+        '<div class="worth-fig">' + money(line.flat) + '</div>' +
+        '<div class="worth-sub">A flat fee, drawn from the ' + PHASE_NAMES[t.ph] +
+          ' fee on this contract</div>' +
+        '<div class="worth-note">Hours do not change it. They decide whether it was worth taking.</div>' +
+      '</div>';
+    }
+
+    return '<div class="dk-detail dk-detail-4">' +
       '<div>' +
         '<div class="caps">The ticket</div>' +
         '<div class="facts">' + facts + '</div>' +
+      '</div>' +
+      '<div>' +
+        '<div class="caps">What it is worth</div>' +
+        (inv ? '<p class="why-sub">Priced at contracting on ' + inv.id + ', before this ticket existed.</p>' : '') +
+        worth +
       '</div>' +
       '<div>' +
         '<div class="caps">How the bucket was decided</div>' +
@@ -429,141 +459,6 @@
 
   /* ------------------------------------------- §5.3 the phase template panel */
 
-  function templatePanel() {
-    var t = state.tmpl;
-    var rows = t.rows;
-    var total = rows ? rows.reduce(function (a, r) { return a + (parseFloat(r.est) || 0); }, 0) : 0;
-
-    return '<div class="tmpl">' +
-      '<div class="tmpl-head">' +
-        '<div><div class="caps">Open a phase</div>' +
-        '<p class="why-sub">Opening a phase spawns its standard tickets. Set who takes each one and how long it should take here — the lead edits and assigns rather than composes, otherwise intake becomes the bottleneck and the system starves.</p></div>' +
-        '<button type="button" class="btn" data-act="cancel">Close</button>' +
-      '</div>' +
-      '<div class="fld-row">' +
-        '<label class="fld"><span class="fld-l">Project</span>' +
-          '<select class="inp" data-act="tf" data-val="project">' +
-            '<option value="">Choose a project…</option>' +
-            PROJ.map(function (p) {
-              return '<option value="' + p.id + '"' + (t.project === p.id ? ' selected' : '') + '>' +
-                esc(p.name) + '</option>';
-            }).join('') +
-          '</select></label>' +
-        '<label class="fld"><span class="fld-l">Phase</span>' +
-          '<select class="inp" data-act="tf" data-val="phase">' +
-            '<option value="">Choose a phase…</option>' +
-            PHASE_KEYS.map(function (k) {
-              return '<option value="' + k + '"' + (t.phase === k ? ' selected' : '') + '>' +
-                PHASE_NAMES[k] + '</option>';
-            }).join('') +
-          '</select></label>' +
-      '</div>' +
-
-      (rows
-        ? (function () {
-            var rec = proj(t.project).phases[t.phase];
-            var ft = FEE[rec.fee];
-            return '<div class="tmpl-list">' +
-              '<div class="tmpl-list-head">' +
-                '<div><div class="caps">' + rows.length + ' tickets will be raised</div>' +
-                '<p class="why-sub">Assignees are suggested from who can do the work and who has most room this week. Change any of them.</p></div>' +
-                '<div class="tmpl-fee">' + PHASE_NAMES[t.phase] + ' is charged ' +
-                  ft.label.toLowerCase() + ', so these hours land in ' +
-                  '<span class="bk bk-' + ft.bucket + '">' + ft.bucket + '</span></div>' +
-              '</div>' +
-              '<div class="tmpl-grid tmpl-grid-head">' +
-                '<span class="caps">Ticket</span><span class="caps">Assignee</span>' +
-                '<span class="caps num">Estimate</span>' +
-              '</div>' +
-              rows.map(function (r, i) {
-                var sug = person(r.who);
-                var l = sug ? load(sug.id) : null;
-                return '<div class="tmpl-grid tmpl-row">' +
-                  '<span class="tmpl-t">' + esc(r.title) +
-                    '<span class="tmpl-y">' + esc(wt(r.type).name) + '</span></span>' +
-                  '<span class="tmpl-who">' +
-                    '<select class="inp inp-cell" data-act="tw" data-val="' + i + '">' +
-                      P.map(function (p) {
-                        return '<option value="' + p.id + '"' + (r.who === p.id ? ' selected' : '') + '>' +
-                          esc(p.short) + ' · ' + esc(p.role) + '</option>';
-                      }).join('') +
-                    '</select>' +
-                    (l ? '<span class="tmpl-load">' + l.hours + 'h of ' + l.avail +
-                      'h booked this week</span>' : '') +
-                  '</span>' +
-                  '<span class="tmpl-est">' +
-                    '<input class="inp inp-cell inp-num" type="number" min="0" step="0.5" ' +
-                      'value="' + r.est + '" data-act="te" data-val="' + i + '">' +
-                  '</span>' +
-                '</div>';
-              }).join('') +
-              '<div class="tmpl-total">' + hrs(total) + ' committed across ' +
-                rows.length + ' tickets</div>' +
-            '</div>';
-          })()
-        : '') +
-
-      (t.error ? '<div class="form-err">' + esc(t.error) + '</div>' : '') +
-      '<div class="dk-actions">' +
-        '<button type="button" class="btn btn-go" data-act="tmpl-do">Raise them into intake</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  /* Which roles suit which work, so a template ticket lands somewhere sensible
-     rather than on whoever happens to be idle. */
-  var AFFINITY = {
-    concept: ['Creative lead', 'Interior designer'],
-    present: ['Creative lead', 'Interior designer'],
-    dwg100: ['CAD technician', 'Interior designer'],
-    dwg200: ['CAD technician', 'Interior designer'],
-    dwg300: ['CAD technician', 'Interior designer'],
-    spec: ['Interior designer', 'Procurement'],
-    revision: ['CAD technician', 'Interior designer'],
-    enquiry: ['Procurement'], followup: ['Procurement'],
-    delivery: ['Procurement', 'Project coordinator'], reselect: ['Procurement'],
-    sitevisit: ['Project coordinator', 'Interior designer'],
-    rfi: ['CAD technician', 'Project coordinator'],
-    submittal: ['Interior designer', 'Project coordinator'],
-    snag: ['Project coordinator'],
-    valuation: ['Quantity surveyor'],
-    pitch: ['Business & admin'], proposal: ['Business & admin'],
-    admin: ['Business & admin'], leave: []
-  };
-
-  /* The least booked person who can do the work. On a landscape project the
-     drawing roles shift to the landscape team. */
-  function suggestWho(typeId, projectId) {
-    var pr = proj(projectId);
-    var lead = pr ? person(pr.lead) : null;
-    var roles = (AFFINITY[typeId] || []).slice();
-    if (lead && lead.role === 'Landscape') {
-      roles = roles.map(function (r) { return r === 'CAD technician' ? 'Landscape' : r; });
-    }
-    var byLoad = function (a, b) { return load(a.id).ratio - load(b.id).ratio; };
-    for (var i = 0; i < roles.length; i++) {
-      var pool = P.filter(function (x) { return x.role === roles[i]; });
-      /* The project lead is supervising, so production work goes to someone
-         else where there is anyone else to give it to. */
-      var notLead = pool.filter(function (x) { return !pr || x.id !== pr.lead; });
-      if (notLead.length) { return notLead.slice().sort(byLoad)[0].id; }
-      if (pool.length) { return pool.slice().sort(byLoad)[0].id; }
-    }
-    return P.slice().sort(byLoad)[0].id;
-  }
-
-  /* Rebuild the template rows whenever the project or the phase changes. */
-  function buildTemplateRows() {
-    var t = state.tmpl;
-    if (!t || !t.project || !t.phase) { t.rows = null; return; }
-    t.rows = DESK.TEMPLATES[t.phase].map(function (r) {
-      return {
-        type: r.type, title: r.title, est: r.est,
-        who: r.who || suggestWho(r.type, t.project)
-      };
-    });
-  }
-
   /* ---------------------------------------------------------- capacity rail */
 
   function capacity() {
@@ -611,8 +506,9 @@
        so none of it reaches the forward forecast until it is assigned (§5.1). */
     var unplanned = intake.reduce(function (a, t) { return a + (t.suggested || 0); }, 0);
     var committed = P.reduce(function (a, p) { return a + load(p.id).hours; }, 0);
+    var available = P.reduce(function (a, p) { return a + (40 - (DESK.LEAVE[p.id] || 0)); }, 0);
     var sourcing = all.filter(function (t) { return derive(t).bucket === 'sourcing'; })
-      .reduce(function (a, t) { return a + (t.logged || 0); }, 0);
+      .reduce(function (a, t) { return a + (logged(t)); }, 0);
 
     var h = [];
 
@@ -623,7 +519,6 @@
         '<p class="page-sub">' + all.length + ' tickets across ' + PROJ.length +
           ' running projects · week of 14 September 2026</p>' +
       '</div>' +
-      '<button type="button" class="btn btn-go" data-act="tmpl-open">Open a phase</button>' +
     '</div>');
 
     h.push('<div class="rule-top metrics">' +
@@ -640,7 +535,7 @@
       '<div class="metric">' +
         '<div class="caps">Committed this week</div>' +
         '<div class="metric-value">' + Math.round(committed) + 'h</div>' +
-        '<div class="metric-note">Estimates on open tickets, against 704h available</div>' +
+        '<div class="metric-note">Estimates on open tickets, against ' + available + 'h available</div>' +
       '</div>' +
       '<div class="metric">' +
         '<div class="caps">Unpriced sourcing</div>' +
@@ -651,9 +546,6 @@
 
     if (state.flash) {
       h.push('<div class="flash">' + esc(state.flash) + '</div>');
-    }
-    if (state.tmpl) {
-      h.push(templatePanel());
     }
 
     /* toolbar */
@@ -723,17 +615,26 @@
     state.gate = null;
   }
 
+  /* An hour is a record against the ticket's invoice line, carrying who did it
+     and the rate at the moment it was logged. On a rate line it moves the
+     line's value straight away. */
   function doLog() {
     var l = state.log, t = find(l.id);
     var n = parseFloat(l.hours);
     if (!n || n <= 0) { l.error = 'Enter the hours.'; return; }
-    t.logged = (t.logged || 0) + n;
+    if (!t.who) { l.error = 'Nobody is assigned, so there is no one to log against.'; return; }
+    BILL.logTime(t, t.who, n, '18 Sep');
+    var line = BILL.lineFor(t.id);
     var d = derive(t);
-    var rec = phaseRec(t);
     state.log = null;
-    state.flash = hrs(n) + ' logged on ' + t.id + ' → ' + d.bucket + ' (' +
-      wt(t.type).group.toLowerCase() + ' work' +
-      (rec ? ', ' + PHASE_NAMES[t.ph] + ' charged ' + FEE[rec.fee].label.toLowerCase() : '') + ').';
+    state.flash = hrs(n) + ' logged by ' + person(t.who).short + ' on ' + t.id +
+      ' → ' + d.bucket + '. ' +
+      (!line
+        ? 'No invoice line covers this work, so it is worth nothing to the client.'
+        : line.basis === 'rate'
+          ? line.id + ' is now worth ' + money(BILL.value(line)) + ' — ' +
+            hrs(BILL.loggedHours(line)) + ' at ' + money(line.rate) + ' an hour.'
+          : line.id + ' is a flat ' + money(line.flat) + ', so the hour is already in the fee.');
   }
 
   /* §5.1 — a ticket only leaves intake once an assignee, an estimate AND a
@@ -742,7 +643,6 @@
     if (t.state !== 'intake') { return null; }
     if (!t.who || !t.est || !t.start || !t.due) { return null; }
     t.state = 'assigned';
-    t.logged = t.logged || 0;
     return t.id + ' is now assigned to ' + person(t.who).name + ' — ' + hrs(t.est) +
       ' booked into ' + t.start + ' – ' + t.due + '.';
   }
@@ -792,7 +692,7 @@
       t.state = raw;
       if (raw !== 'blocked') { t.blockNote = null; }
       var byWho = t.who ? ' by ' + person(t.who).short : '';
-      if (raw === 'done' && t.est && !t.logged) {
+      if (raw === 'done' && t.est && !logged(t)) {
         /* §10 — closing with nothing logged is the compliance hole. Say so. */
         state.flash = t.id + ' closed' + byWho + ' with no hours logged against it. Its ' +
           hrs(t.est) + ' estimate never becomes an actual.';
@@ -815,33 +715,6 @@
     }
     var moved = settle(t);
     if (moved) { state.flash = moved; }
-  }
-
-  function doTemplate() {
-    var t = state.tmpl;
-    if (!t.project || !t.phase) { t.error = 'Pick a project and a phase.'; return; }
-    var bad = t.rows.filter(function (r) { return !r.who || !(parseFloat(r.est) > 0); });
-    if (bad.length) {
-      t.error = bad.length + ' ticket' + (bad.length === 1 ? '' : 's') +
-        ' still needs an assignee and an estimate — the estimate is the capacity allocation.';
-      return;
-    }
-    var pr = proj(t.project);
-    var rec = pr.phases[t.phase];
-    var made = t.rows.map(function (r) {
-      return {
-        id: nextId(), p: t.project, ph: t.phase, type: r.type, title: r.title,
-        who: r.who, est: parseFloat(r.est), logged: 0, state: 'intake'
-      };
-    });
-    TICKETS = made.concat(TICKETS);
-    var total = made.reduce(function (a, r) { return a + r.est; }, 0);
-    state.tmpl = null;
-    state.project = t.project;
-    state.flash = made.length + ' tickets raised for ' + PHASE_NAMES[t.phase] + ' on ' +
-      pr.name + ' — ' + hrs(total) + ' assigned. They sit in intake until each one has a ' +
-      'window. The phase is charged ' + FEE[rec.fee].label.toLowerCase() +
-      ', so their hours will land in ' + FEE[rec.fee].bucket + '.';
   }
 
   /* ---------------------------------------------------------- render + wire */
@@ -867,7 +740,7 @@
       if (t) { var g = gate(t); if (g && g.open) { state.gate = { id: t.id, choice: '', reason: '' }; } }
     }
     else if (act === 'close') { state.open = ''; state.log = null; state.gate = null; }
-    else if (act === 'cancel') { state.log = null; state.tmpl = null; }
+    else if (act === 'cancel') { state.log = null; }
     else if (act === 'log-open') { state.log = { id: val, hours: '' }; state.flash = ''; }
     else if (act === 'log-do') { doLog(); }
     else if (act === 'gf') {
@@ -876,8 +749,6 @@
     }
     else if (act === 'gr') { state.gate.reason = val; state.gate.error = ''; }
     else if (act === 'gate-do') { state.gate = state.gate || { id: val }; doGate(); }
-    else if (act === 'tmpl-open') { state.tmpl = { project: '', phase: '', rows: null }; state.open = ''; state.flash = ''; }
-    else if (act === 'tmpl-do') { doTemplate(); }
     else { return; }
     render();
   });
@@ -888,9 +759,6 @@
     if (!el) { return; }
     var act = el.getAttribute('data-act'), key = el.getAttribute('data-val');
     if (act === 'lf' && state.log) { state.log[key] = el.value; state.log.error = ''; }
-    else if (act === 'tf' && state.tmpl) {
-      state.tmpl[key] = el.value; state.tmpl.error = ''; buildTemplateRows(); render();
-    }
   });
   /* Row edits commit on change rather than on every keystroke, so typing an
      estimate is not interrupted by a re-render. */
@@ -903,16 +771,6 @@
     else if (act === 'set-state') { setField(val, 'state', el.value); }
     else if (act === 'set-start') { setField(val, 'start', el.value); }
     else if (act === 'set-due') { setField(val, 'due', el.value); }
-    else if (act === 'tf' && state.tmpl) {
-      state.tmpl[el.getAttribute('data-val')] = el.value; state.tmpl.error = '';
-      buildTemplateRows();
-    }
-    else if (act === 'tw' && state.tmpl && state.tmpl.rows) {
-      state.tmpl.rows[parseInt(val, 10)].who = el.value; state.tmpl.error = '';
-    }
-    else if (act === 'te' && state.tmpl && state.tmpl.rows) {
-      state.tmpl.rows[parseInt(val, 10)].est = el.value; state.tmpl.error = '';
-    }
     else { return; }
     render();
   });
