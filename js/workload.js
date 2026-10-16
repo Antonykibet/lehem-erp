@@ -6,17 +6,17 @@
 
   /* ------------------------------------------------------------------ data */
 
-  /* The same four hues the Overview and Financials give the same four
-     buckets, so a colour means one thing wherever you meet it. */
-  var COLORS = { bill: '#3987e5', fee: '#199e70', sourcing: '#d95926', over: '#c98500' };
+  /* The same hues the Overview and the Service Desk give the same buckets, so a
+     colour means one thing wherever you meet it. */
+  var COLORS = { planned: '#3987e5', sourcing: '#d95926', over: '#c98500' };
 
-  /* Four kinds of hours, and only the first two are paid for. The firm does
-     not sell the furniture and fittings, so the ordering work has no product
-     markup behind it — those hours are unpriced until a coordination line is
-     put on an invoice, which is what contracting a phase on Financials does. */
+  /* Three kinds of hours, and only the first is paid for. An hour earns when
+     it sits on a work item in a phase plan, at the rate of whoever it was
+     given to. The ordering work has nothing behind it — the firm does not
+     sell the furniture, so there is no markup — and it stays unpriced until
+     a coordination line is planned, which contracting a phase is for. */
   var BUCKETS = [
-    { key: 'bill', label: 'Billed by the hour' },
-    { key: 'fee', label: 'Covered by a flat fee' },
+    { key: 'planned', label: 'On a planned work item' },
     { key: 'sourcing', label: 'FF&amp;E coordination, unpriced' },
     { key: 'over', label: 'Admin &amp; unpaid' }
   ];
@@ -36,14 +36,14 @@
      than a fault in the data: the ordering work is real and nobody is
      charging for it. */
   var ROLE_MIX = {
-    'Creative lead': { bill: 40, fee: 18, sourcing: 10, over: 32 },
-    'Interior designer': { bill: 50, fee: 20, sourcing: 18, over: 12 },
-    'CAD technician': { bill: 56, fee: 20, sourcing: 12, over: 12 },
-    'Landscape': { bill: 48, fee: 20, sourcing: 18, over: 14 },
-    'Procurement': { bill: 10, fee: 4, sourcing: 72, over: 14 },
-    'Quantity surveyor': { bill: 44, fee: 22, sourcing: 20, over: 14 },
-    'Project coordinator': { bill: 30, fee: 16, sourcing: 40, over: 14 },
-    'Business & admin': { bill: 6, fee: 4, sourcing: 18, over: 72 }
+    'Creative lead': { planned: 58, sourcing: 10, over: 32 },
+    'Interior designer': { planned: 70, sourcing: 18, over: 12 },
+    'CAD technician': { planned: 76, sourcing: 12, over: 12 },
+    'Landscape': { planned: 68, sourcing: 18, over: 14 },
+    'Procurement': { planned: 14, sourcing: 72, over: 14 },
+    'Quantity surveyor': { planned: 66, sourcing: 20, over: 14 },
+    'Project coordinator': { planned: 46, sourcing: 40, over: 14 },
+    'Business & admin': { planned: 10, sourcing: 18, over: 72 }
   };
 
   /* The paid share you'd expect each discipline to sit in. */
@@ -173,16 +173,15 @@
     });
 
     function mixBase(set) {
-      var tot = 0, b = 0, f = 0, sc = 0, o = 0;
+      var tot = 0, b = 0, sc = 0, o = 0;
       set.forEach(function (r) {
         var mx = ROLE_MIX[r.p.role];
         tot += r.hours;
-        b += r.hours * mx.bill / 100;
-        f += r.hours * mx.fee / 100;
+        b += r.hours * mx.planned / 100;
         sc += r.hours * mx.sourcing / 100;
         o += r.hours * mx.over / 100;
       });
-      return { tot: tot, bill: b / tot * 100, fee: f / tot * 100,
+      return { tot: tot, planned: b / tot * 100,
         sourcing: sc / tot * 100, over: o / tot * 100 };
     }
 
@@ -190,10 +189,9 @@
     var firm = mixBase(rows);
 
     function colMix(j, shift) {
-      var b = Math.round(base.bill + wob(j + shift, 1, 3));
-      var f = Math.round(base.fee + wob(j + shift, 2, 2));
+      var b = Math.round(base.planned + wob(j + shift, 1, 3));
       var sc = Math.round(base.sourcing + wob(j + shift, 3, 3));
-      return { bill: b, fee: f, sourcing: sc, over: 100 - b - f - sc };
+      return { planned: b, sourcing: sc, over: 100 - b - sc };
     }
 
     var hoursPerCol = base.tot / n;
@@ -211,23 +209,21 @@
       });
       return {
         label: label, segments: segs,
-        billPct: mx.bill, feePct: mx.fee, sourcingPct: mx.sourcing, overPct: mx.over,
-        paidPct: mx.bill + mx.fee
+        plannedPct: mx.planned, sourcingPct: mx.sourcing, overPct: mx.over,
+        paidPct: mx.planned
       };
     });
 
-    /* Paid for means an hourly line or a flat fee. There is no third way for
-       an hour to earn here, so this is the whole of it. */
+    /* Paid for means the hour sits on a work item in a phase plan. There is
+       no second way for an hour to earn here, so this is the whole of it. */
     var paidSeries = mixCols.map(function (c) { return c.paidPct; });
     var sourcingSeries = mixCols.map(function (c) { return c.sourcingPct; });
     var overSeries = mixCols.map(function (c) { return c.overPct; });
     var paid = Math.round(avgOf(paidSeries));
     var sourcing = Math.round(avgOf(sourcingSeries));
     var overhead = Math.round(avgOf(overSeries));
-    var billShare = Math.round(avgOf(mixCols.map(function (c) { return c.billPct; })));
-    var feeShare = paid - billShare;
     var prior = cols.map(function (l, j) { return colMix(j, 50); });
-    var priorPaid = Math.round(avgOf(prior.map(function (c) { return c.bill + c.fee; })));
+    var priorPaid = Math.round(avgOf(prior.map(function (c) { return c.planned; })));
     var priorSourcing = Math.round(avgOf(prior.map(function (c) { return c.sourcing; })));
 
     var rw = 0, rh = 0;
@@ -239,11 +235,10 @@
       value: paid + '%',
       delta: pts(paid - priorPaid),
       deltaColor: deltaTone(pts(paid - priorPaid), paid >= priorPaid),
-      bill: billShare, billW: billShare + '%',
-      fee: feeShare, feeW: feeShare + '%',
-      tip: 'Hours a client is paying for — charged by the hour, or sitting inside a flat fee that has been agreed. Nothing else counts, because nothing else brings money in.',
+      paidW: paid + '%',
+      tip: 'Hours sitting on a work item in a phase plan, charged at the rate of whoever the item was given to. Nothing else counts, because nothing else brings money in.',
       note: 'The other ' + (100 - paid) + ' points are not earning: ' + sourcing +
-        '% goes on FF&amp;E coordination that no invoice line covers, and ' + overhead +
+        '% goes on FF&amp;E coordination that no work item covers, and ' + overhead +
         '% is admin, pitching and internal time. The coordination half of that is ' +
         'recoverable — put a rate or a fee on a coordination line when you contract ' +
         'the next phase and those hours start counting here.'
@@ -263,12 +258,12 @@
     var metrics = [
       metric('Unpriced coordination', sourcing + '%', pts(sourcing - priorSourcing),
         sourcing <= priorSourcing, sourcingSeries, null,
-        'Hours spent chasing suppliers, re-picking discontinued items and booking deliveries, on tickets that no invoice line covers. Nothing is charged for them, so they come straight out of the design fee. Contracting a phase on Financials is where a coordination line gets a price.'),
+        'Hours spent chasing suppliers, re-picking discontinued items and booking deliveries, on tickets that no work item covers. Nothing is charged for them, so they come straight out of the design fee. Contracting a phase on Planning is where a coordination line gets a price.'),
       metric('Admin &amp; unpaid', overhead + '%', pts(overhead - (100 - priorPaid - priorSourcing)),
         overhead <= (100 - priorPaid - priorSourcing), overSeries, null,
         'Internal time, training, pitching and proposals. Every firm carries some; it is only a problem when it grows while the paid share does not.'),
       metric('Hours actually charged', realization + '%', '↑ up 1 point on last period', true, realSeries, null,
-        'Of the hours you could have charged for, how many made it onto an invoice. The rest were written off, discounted, or never captured. Your accountant calls this realization.')
+        'Of the hours you could have charged for, how many were actually captured against a work item. The rest were written off, absorbed, or never logged. Your accountant calls this realization.')
     ];
 
     var heatRows = selRows.map(function (r) {
@@ -294,7 +289,7 @@
     if (openRow) {
       var mx = ROLE_MIX[openRow.p.role];
       var h = openRow.hours;
-      var pClassic = mx.bill + mx.fee;
+      var pClassic = mx.planned;
       detail = {
         initials: openRow.p.initials,
         name: openRow.p.name,
@@ -329,7 +324,7 @@
 
     var roleRows = ROLE_ORDER.map(function (role) {
       var mx = ROLE_MIX[role];
-      var val = mx.bill + mx.fee;
+      var val = mx.planned;
       var band = ROLE_BAND[role];
       return {
         key: role, role: ROLE_PLURAL[role], actual: val,
@@ -405,16 +400,14 @@
         '<div class="hero-value">' + v.hero.value + '</div>' +
         '<div class="hero-delta" style="color:' + v.hero.deltaColor + ';">' + v.hero.delta + '</div>' +
         '<div class="hero-track">' +
-          '<span class="hero-fill" style="left:0; width:' + v.hero.billW + '; background:var(--b1);"></span>' +
-          '<span class="hero-fill" style="left:' + v.hero.billW + '; width:' + v.hero.feeW + '; background:var(--b3);"></span>' +
+          '<span class="hero-fill" style="left:0; width:' + v.hero.paidW + '; background:var(--b1);"></span>' +
         '</div>' +
         '<div class="hero-keys">' +
-          '<span class="hero-key"><span class="legend-dot" style="background:var(--b1);"></span>Billed by the hour <b>' + v.hero.bill + '%</b></span>' +
-          '<span class="hero-key"><span class="legend-dot" style="background:var(--b3);"></span>Covered by a flat fee <b>' + v.hero.fee + '%</b></span>' +
+          '<span class="hero-key"><span class="legend-dot" style="background:var(--b1);"></span>On a planned work item <b>' + v.hero.value + '</b></span>' +
         '</div>' +
         '<p class="hero-note">' + v.hero.note + '</p>' +
       '</div>' +
-      '<div class="metrics">' +
+      '<div class="metrics three">' +
         v.metrics.map(function (m) {
           return '<div class="metric">' +
             '<div class="caps"><span class="term">' + m.label + '<span class="tip tip-wide">' + m.tip + '</span></span></div>' +
@@ -436,7 +429,7 @@
         '<div>' +
           '<div class="caps">Every logged hour</div>' +
           '<h2 class="section-title">What the time was spent on</h2>' +
-          '<p class="section-sub">Four kinds of hours, and only the first two are paid for. The ordering work — chasing confirmations, receiving deliveries, re-picking discontinued items, booking installs — never lands on an invoice, and the firm does not sell the product, so nothing else covers it either. Click a colour to focus it.</p>' +
+          '<p class="section-sub">Three kinds of hours, and only the first is paid for. The ordering work — chasing confirmations, receiving deliveries, re-picking discontinued items, booking installs — is never planned into a work item, and the firm does not sell the product, so nothing else covers it either. Click a colour to focus it.</p>' +
         '</div>' +
         '<div class="seg" role="group" aria-label="Hour mix view">' +
           '<button type="button" class="seg-btn' + (state.mixView === 'chart' ? ' active' : '') + '" data-act="mixView" data-val="chart">Chart</button>' +
@@ -557,12 +550,13 @@
 
   function mixTable(v) {
     return '<table class="data-table"><thead><tr>' +
-      '<th>Period</th><th>Billed by the hour</th><th>Covered by a flat fee</th>' +
+      '<th>Period</th><th>On a planned work item</th>' +
       '<th>FF&amp;E coordination</th><th>Admin &amp; unpaid</th><th>Paid for</th>' +
       '</tr></thead><tbody>' +
       v.mixCols.map(function (c) {
-        return '<tr><td class="rowhead">' + c.label + '</td><td>' + c.billPct + '%</td><td>' + c.feePct +
-          '%</td><td>' + c.sourcingPct + '%</td><td>' + c.overPct + '%</td><td>' + c.paidPct + '%</td></tr>';
+        return '<tr><td class="rowhead">' + c.label + '</td><td>' + c.plannedPct +
+          '%</td><td>' + c.sourcingPct + '%</td><td>' + c.overPct + '%</td><td>' +
+          c.paidPct + '%</td></tr>';
       }).join('') +
     '</tbody></table>';
   }

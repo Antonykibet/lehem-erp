@@ -5,7 +5,7 @@
 
    Everything in it is derived, never authored. A ticket appears because
    its due date has passed, because nobody owns it, because the revision
-   gate is shut on it, or because an invoice built from it is past terms.
+   gate is shut on it, or because a work item has run out of estimate.
    That matters: a feed somebody curates becomes a feed somebody grooms,
    and the items that embarrass the firm quietly stop being added.
 
@@ -16,9 +16,9 @@
 (function () {
   'use strict';
 
-  if (!window.DESK || !window.BILL) { return; }
+  if (!window.DESK || !window.PLAN) { return; }
 
-  var DESK = window.DESK, BILL = window.BILL;
+  var DESK = window.DESK, PLAN = window.PLAN;
   var TICKETS = DESK.TICKETS, P = DESK.PEOPLE, PROJ = DESK.PROJECTS, WT = DESK.WORK_TYPES;
 
   /* The signed-in person, and the day the sample week is read from: Friday
@@ -28,7 +28,7 @@
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var DONE = 'done';
 
-  if (!BILL.store.invoices.length) { BILL.seed(TICKETS); }
+  if (!PLAN.store.plans.length) { PLAN.seed(TICKETS); }
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -58,9 +58,9 @@
     return w ? w.name : 'nobody';
   }
   function progress(t) {
-    var done = BILL.loggedOnTicket(t.id);
+    var done = PLAN.loggedOnTicket(t.id);
     if (!t.est) { return 'no estimate yet'; }
-    return BILL.hrs(done) + ' of ' + BILL.hrs(t.est) + ' logged';
+    return PLAN.hrs(done) + ' of ' + PLAN.hrs(t.est) + ' logged';
   }
 
   /* The revision gate, as the Service Desk reads it: a revision cannot be
@@ -110,9 +110,14 @@
       .sort(function (a, b) { return daysPast(b.due) - daysPast(a.due); }), function (t) {
       var late = daysPast(t.due);
       var sitting = t.state === 'review' ? ', and sitting in review for sign-off' : '';
+      /* If the estimate is gone as well as the date, say so here rather than
+         listing the ticket twice — it is one conversation, not two. */
+      var item = PLAN.itemFor(t.id);
+      var spent = item && item.est && PLAN.loggedHours(item) >= item.est
+        ? ' · its ' + PLAN.hrs(item.est) + ' estimate is spent' : '';
       return {
         tone: 'crit', tag: plural(late, 'day') + ' past due', id: t.id, title: t.title,
-        body: where(t) + ' · with ' + owner(t) + sitting,
+        body: where(t) + ' · with ' + owner(t) + sitting + spent,
         href: 'desk.html' + (t.who ? '?who=' + t.who : '')
       };
     });
@@ -154,20 +159,29 @@
       });
     }
 
-    /* 6 — money. An invoice past terms is the one item here nobody inside
-       the firm can close on their own. */
-    BILL.store.invoices.filter(function (i) { return BILL.isOverdue(i, TODAY); })
-      .forEach(function (inv) {
-        var pr = proj(inv.project);
-        var owed = BILL.invoiceValue(inv) - (inv.paid || 0);
+    /* 6 — work items that have run out of estimate. The ticket may still be
+       open and on track, but the hours it was given are gone, so somebody has
+       to decide: more estimate, or a change order. */
+    PLAN.store.plans.filter(function (p) { return !p.closed; }).forEach(function (pl) {
+      PLAN.itemsOf(pl.id).forEach(function (w) {
+        if (!w.est || PLAN.loggedHours(w) < w.est) { return; }
+        /* A finished ticket that used its whole estimate did exactly what it
+           was meant to. Only work still running needs a decision. */
+        var t = w.ticket ? live.filter(function (x) { return x.id === w.ticket; })[0] : null;
+        if (!t || claimed[t.id]) { return; }
+        claimed[t.id] = true;
+        var pr = proj(w.project);
+        var over = PLAN.overBy(w);
         items.push({
-          tone: 'crit', tag: plural(daysPast(inv.due), 'day') + ' past terms',
-          id: inv.id, title: BILL.money(owed) + ' outstanding',
-          body: (pr ? pr.name : 'Unknown project') + ' · ' +
-            DESK.PHASE_NAMES[inv.phase] + ' · issued ' + inv.issued +
-            ', due ' + inv.due, href: 'financials.html'
+          tone: 'crit', tag: over > 0 ? PLAN.hrs(over) + ' over estimate' : 'estimate spent',
+          id: w.ticket || w.id, title: w.title,
+          body: (pr ? pr.name : 'Internal') + ' · ' + DESK.PHASE_NAMES[w.phase] +
+            ' · ' + PLAN.hrs(PLAN.loggedHours(w)) + ' logged against ' + PLAN.hrs(w.est) +
+            ' planned on ' + pl.id,
+          who: w.who, href: 'desk.html' + (w.who ? '?who=' + w.who : '')
         });
       });
+    });
 
     /* 7 — due today, once the overdue and the stuck have had their turn. */
     take(live.filter(function (t) { return daysPast(t.due) === 0; }), function (t) {
@@ -181,21 +195,21 @@
     /* 8 — the standing one. Not urgent and never closed, but it is the
        only line on this page that costs money every week it is ignored. */
     var unpriced = TICKETS.filter(function (t) {
-      return BILL.derive(t).bucket === 'sourcing';
-    }).reduce(function (a, t) { return a + BILL.loggedOnTicket(t.id); }, 0);
+      return PLAN.derive(t).bucket === 'sourcing';
+    }).reduce(function (a, t) { return a + PLAN.loggedOnTicket(t.id); }, 0);
     if (unpriced > 0) {
       items.push({
         tone: 'info', tag: 'For information',
-        title: BILL.hrs(unpriced) + ' of FF&E coordination nobody is paying for',
-        body: 'No invoice line covers this work · put a rate or a fee on a ' +
-          'coordination line when you contract the next phase',
-        href: 'financials.html'
+        title: PLAN.hrs(unpriced) + ' of FF&E coordination nobody is paying for',
+        body: 'No work item covers this · give a coordination line an owner and ' +
+          'an estimate when you contract the next phase',
+        href: 'desk.html'
       });
     }
 
     /* Within the chase band, severity reads top to bottom. The sort is
        stable, so the rule order above still breaks ties — overdue work
-       before an overdue invoice, both before anything merely due. */
+       before a spent estimate, both before anything merely due. */
     var RANK = { crit: 0, warn: 1, mine: 2, info: 3 };
     var mine = items.filter(function (i) { return i.group === 'mine'; });
     var chase = items.filter(function (i) { return i.group !== 'mine'; })
@@ -346,7 +360,7 @@
     });
 
     /* The panel floats over the bottom right, so it can sit on top of a
-       control — the invoice filters end up under it once the ledger is
+       control — the plan filters end up under it once the ledger is
        short enough to scroll. The moment the person reaches for the page
        it gets out of the way. Capture phase, so the click it yields to
        still lands on whatever was underneath. */

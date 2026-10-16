@@ -15,10 +15,10 @@
   var PHASE_NAMES = DESK.PHASE_NAMES, PHASE_KEYS = DESK.PHASE_KEYS;
   var TICKETS = DESK.TICKETS.slice();
 
-  /* Billing is the spine: an invoice line was priced at contracting, and this
+  /* Planning is the spine: a work item was priced at contracting, and this
      screen reads from it rather than deciding anything about money itself. */
-  BILL.seed(TICKETS);
-  var money = BILL.money;
+  PLAN.seed(TICKETS);
+  var money = PLAN.money;
 
   var REASONS = ['Scope never priced', 'Goodwill', 'Reselection', 'Quoting error'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -38,10 +38,10 @@
   }
 
   /* ------------------------------------------------ §1 the bucket derivation
-     Lives in billing.js now, because the answer comes from the ticket's
-     invoice line — which was priced once, at contracting. The person logging
-     hours still chooses nothing. */
-  function derive(t) { return BILL.derive(t); }
+     Lives in plan.js now, because the answer comes from the ticket's work
+     item — which was priced once, at contracting. Nobody chooses a bucket,
+     and nobody types an hour. */
+  function derive(t) { return PLAN.derive(t); }
 
   /* --------------------------------------------------- §5.4 the revision gate
      A revision ticket on a phase that has used its allowance cannot be
@@ -109,12 +109,14 @@
 
   /* -------------------------------------------------------------- formatting */
 
+  var PHASE_KEYS = DESK.PHASE_KEYS;
+
   function hrs(n) {
     if (n === null || n === undefined) { return '—'; }
     return (Math.round(n * 10) / 10) + 'h';
   }
   /* The ticket does not hold a running total — the time entries do. */
-  function logged(t) { return BILL.loggedOnTicket(t.id); }
+  function logged(t) { return PLAN.loggedOnTicket(t.id); }
   /* "a, b and c" rather than "a and b and c". */
   function listOf(a) {
     if (a.length < 3) { return a.join(' and '); }
@@ -149,13 +151,11 @@
     who: whoFromUrl(),
     open: '',          /* ticket id whose detail panel is showing */
     gate: null,        /* { id, choice, reason, error } */
-    log: null,         /* { id, hours, error } */
     flash: '',
     sort: 'due'
   };
 
-  var seq = 500;
-  function nextId() { seq += 1; return 'LEH-' + seq; }
+
 
   /* ----------------------------------------------------------------- filters */
 
@@ -263,20 +263,19 @@
     var rec = phaseRec(t);
     var p = person(t.who);
 
-    var line = BILL.lineFor(t.id);
-    var inv = line ? BILL.invoiceOf(line.id) : null;
+    var line = PLAN.itemFor(t.id);
+    var inv = line ? PLAN.planOf(line.id) : null;
     var facts = [
       ['Work type', w.name],
       ['Group', w.group],
       ['Project', pr ? pr.name : 'None — business work'],
       ['Phase', t.ph ? PHASE_NAMES[t.ph] + (DESK.PHASE_SERIES[t.ph] ? ' · ' + DESK.PHASE_SERIES[t.ph] : '') : '—'],
-      ['Invoice line', line ? line.id + ' on ' + line.invoice : 'none — not contracted'],
-      ['Charged', line ? (line.basis === 'rate' ? money(line.rate) + ' an hour'
-        : 'flat fee of ' + money(line.flat)) : 'nothing'],
-      ['Assignee', p ? p.name : 'Unassigned'],
-      ['Estimate', t.est ? hrs(t.est) : 'Not set'],
+      ['Work item', line ? line.id + ' on ' + line.plan : 'none — not planned'],
+      ['Charged', line ? money(line.rate) + ' an hour' : 'nothing'],
+      /* Owner, estimate and window live in the plan column on the right now,
+         where they carry the provenance that explains them. This column is
+         what the ticket IS, not what was decided about it. */
       ['Logged', hrs(logged(t))],
-      ['Window', t.start ? t.start + ' – ' + t.due : 'Not set'],
       ['This week', t.est ? hrs(weekHours(t)) + ' of capacity' : 'Invisible to the heatmap']
     ].map(function (f) {
       return '<div class="fact"><span class="fact-key">' + f[0] + '</span>' +
@@ -293,8 +292,6 @@
 
     if (g && g.open) {
       action = gatePanel(t, g);
-    } else if (state.log && state.log.id === t.id) {
-      action = logPanel(t, d);
     } else {
       var missing = [];
       if (!t.who) { missing.push('an assignee'); }
@@ -320,65 +317,74 @@
                   esc(p.name) + ' — ' + Math.round(load(p.id).ratio * 100) + '% booked</option>';
               }).join('') +
             '</select></label>' +
-          '<label class="fld"><span class="fld-l">Estimate (hours)</span>' +
-            '<input class="inp" type="number" min="0" step="0.5" value="' + (t.est || '') + '" ' +
-            'placeholder="required" data-act="set-est" data-val="' + t.id + '"></label>' +
-          '<div class="fld-row">' +
-            '<label class="fld"><span class="fld-l">Start</span>' +
-              '<input class="inp" value="' + (t.start || '') + '" placeholder="e.g. 22 Sep" ' +
-              'data-act="set-start" data-val="' + t.id + '"></label>' +
-            '<label class="fld"><span class="fld-l">Due</span>' +
-              '<input class="inp" value="' + (t.due || '') + '" placeholder="e.g. 26 Sep" ' +
-              'data-act="set-due" data-val="' + t.id + '"></label>' +
-          '</div>' +
+          /* The estimate and the window were decided when the phase was
+             contracted, and they are the yardstick the clock gets measured
+             against — so they read out here rather than inviting a quiet
+             edit by whoever is running over. Who does the work is another
+             matter: leave and site call-outs are daily, and reassigning
+             should not mean reopening a plan. */
+          (line
+            ? '<div class="fld"><span class="fld-l">Estimate (hours)</span>' +
+                '<div class="inp inp-locked">' + (t.est ? hrs(t.est) : 'Not set') +
+                  '<span class="lk-src">set at contracting on ' + esc(line.plan) + '</span>' +
+                '</div></div>' +
+              '<div class="fld"><span class="fld-l">Window</span>' +
+                '<div class="inp inp-locked">' +
+                  (t.start ? esc(t.start) + ' \u2013 ' + esc(t.due) : 'Not set') +
+                  '<span class="lk-src">set at contracting</span>' +
+                '</div></div>'
+            : '<label class="fld"><span class="fld-l">Estimate (hours)</span>' +
+                '<input class="inp" type="number" min="0" step="0.5" value="' + (t.est || '') + '" ' +
+                'placeholder="required" data-act="set-est" data-val="' + t.id + '"></label>' +
+              '<div class="fld-row">' +
+                '<label class="fld"><span class="fld-l">Start</span>' +
+                  '<input class="inp" value="' + (t.start || '') + '" placeholder="e.g. 22 Sep" ' +
+                  'data-act="set-start" data-val="' + t.id + '"></label>' +
+                '<label class="fld"><span class="fld-l">Due</span>' +
+                  '<input class="inp" value="' + (t.due || '') + '" placeholder="e.g. 26 Sep" ' +
+                  'data-act="set-due" data-val="' + t.id + '"></label>' +
+              '</div>') +
         '</div>' +
+
+        (line ? '' :
+          '<div class="dk-note">Raised outside a phase plan, so there is no contract ' +
+          'line to read an estimate or a window from and they are set here. Planned work ' +
+          'arrives with all three already on it.</div>') +
 
         (missing.length
           ? '<div class="dk-need-note">Still needs ' + listOf(missing) +
             ' before it can leave intake — the estimate is the capacity allocation.</div>'
           : '') +
 
-        (t.who && t.state !== 'done'
-          ? '<div class="dk-actions">' +
-              '<button type="button" class="btn btn-go" data-act="log-open" data-val="' + t.id +
-                '">Log hours</button>' +
-            '</div>' +
-            '<div class="dk-note">Move it between states with the State column in the row.</div>'
-          : '') +
+        (t.who ? clockBlock(t) : '') +
 
         (t.blockNote ? '<div class="dk-blocknote">' + esc(t.blockNote) + '</div>' : '') +
         (t.leadId ? '<div class="dk-note">Tagged to the ' + esc(t.leadId) +
           ' lead, so these hours can be read back as cost per win.</div>' : '');
     }
 
-    /* What this ticket is worth, read straight off its invoice line. */
+    /* What this ticket is worth, read straight off its work item. */
     var worth;
     if (!line) {
       worth = '<div class="worth none">' +
         '<div class="worth-fig">' + (w.bucket === 'sourcing' ? 'Unpriced' : 'Not contracted') + '</div>' +
         '<div class="worth-sub">' + (w.bucket === 'sourcing'
-          ? 'FF&amp;E coordination with no invoice line. The hours are real; nobody is paying for them.'
-          : 'No invoice line covers this work, so the hours land in overhead.') + '</div>' +
+          ? 'FF&amp;E coordination with no work item. The hours are real; nobody is paying for them.'
+          : 'No work item covers this work, so the hours land in overhead.') + '</div>' +
       '</div>';
-    } else if (line.basis === 'rate') {
-      var lh = BILL.loggedHours(line);
+    } else {
+      var lh = PLAN.loggedHours(line);
       worth = '<div class="worth">' +
-        '<div class="worth-fig">' + money(BILL.value(line)) + '</div>' +
+        '<div class="worth-fig">' + money(PLAN.value(line)) + '</div>' +
         '<div class="worth-sub">' + hrs(lh) + ' logged at ' + money(line.rate) + ' an hour · ' +
-          money(BILL.forecast(line)) + ' forecast at ' + hrs(line.est) + '</div>' +
+          money(PLAN.forecast(line)) + ' forecast at ' + hrs(line.est) + '</div>' +
         '<div class="worth-track"><span class="worth-fill' +
           (line.est && lh > line.est ? ' over' : '') + '" style="width:' +
           Math.min(100, line.est ? lh / line.est * 100 : 0) + '%;"></span></div>' +
         '<div class="worth-note">' + (line.est && lh > line.est
-          ? hrs(lh - line.est) + ' past the estimate, and still billing'
-          : 'Every hour logged adds to it') + '</div>' +
-      '</div>';
-    } else {
-      worth = '<div class="worth">' +
-        '<div class="worth-fig">' + money(line.flat) + '</div>' +
-        '<div class="worth-sub">A flat fee, drawn from the ' + PHASE_NAMES[t.ph] +
-          ' fee on this contract</div>' +
-        '<div class="worth-note">Hours do not change it. They decide whether it was worth taking.</div>' +
+          ? hrs(lh - line.est) + ' past the estimate, and drawing further on the ' +
+            PHASE_NAMES[t.ph] + ' fee'
+          : 'Every hour logged adds to it, against the ' + PHASE_NAMES[t.ph] + ' fee') + '</div>' +
       '</div>';
     }
 
@@ -437,24 +443,41 @@
       '<p class="gate-foot">Firms do not lose money by refusing to charge for changes. They lose it because the change was never written down.</p>';
   }
 
-  /* --------------------------------------------------- §1 the time log panel */
+  /* ------------------------------------------------------- §1 the time clock
 
-  function logPanel(t, d) {
-    var l = state.log;
-    return '<div class="caps">Log hours</div>' +
-      '<p class="why-sub">You enter hours and nothing else. The ticket already knows the project, the phase and the bucket.</p>' +
-      '<div class="form">' +
-        '<label class="fld"><span class="fld-l">Hours</span>' +
-          '<input class="inp" type="number" min="0" step="0.5" value="' + (l.hours || '') +
-          '" data-act="lf" data-val="hours" placeholder="required"></label>' +
-        '<div class="fld"><span class="fld-l">Bucket</span>' +
-          '<div class="inp inp-locked">' + d.bucket + ' — derived, not editable</div></div>' +
-        (l.error ? '<div class="form-err">' + esc(l.error) + '</div>' : '') +
-        '<div class="dk-actions">' +
-          '<button type="button" class="btn btn-go" data-act="log-do">Log it</button>' +
-          '<button type="button" class="btn" data-act="cancel">Cancel</button>' +
-        '</div>' +
-      '</div>';
+     Nobody types hours. The clock runs while the ticket sits in In progress
+     and stops when the state changes, so this panel reads the time out
+     rather than asking for it. */
+
+  function clockBlock(t) {
+    var sp = PLAN.openSpan(t.id);
+    var shut = PLAN.spansOf(t.id).filter(function (x) { return x.off; });
+
+    var live = sp
+      ? '<div class="clk-live">' +
+          '<span class="clk-dot"></span>' +
+          '<span class="clk-fig" data-clock="' + t.id + '">' + hrs(PLAN.running(t.id)) + '</span>' +
+          '<span class="clk-sub">On the clock since ' + PLAN.clockLabel(sp.on) +
+            '. It stops the moment the state changes.</span>' +
+        '</div>'
+      : '<div class="clk-idle">' + (t.state === 'done'
+          ? 'Closed, so the clock is off for good.'
+          : 'The clock is off. Move it to In progress in the State column and it starts; ' +
+            'move it anywhere else and the span is written.') + '</div>';
+
+    var rows = shut.length
+      ? '<div class="clk-rows">' + shut.map(function (x) {
+          return '<div class="clk-row">' +
+            '<span class="clk-when">' + esc(PLAN.spanLabel(x)) + '</span>' +
+            '<span class="clk-hrs">' + hrs(x.hours) + '</span></div>';
+        }).join('') +
+        '<div class="clk-foot">' + shut.length + ' span' + (shut.length === 1 ? '' : 's') +
+          ' of In progress, counted over working hours only — ' + hrs(logged(t)) +
+          ' on ' + t.id + '.</div>' +
+        '</div>'
+      : '<div class="clk-foot">No span has closed yet, so nothing has landed on the work item.</div>';
+
+    return '<div class="caps clk-caps">Time on the clock</div>' + live + rows;
   }
 
   /* ------------------------------------------- §5.3 the phase template panel */
@@ -519,6 +542,7 @@
         '<p class="page-sub">' + all.length + ' tickets across ' + PROJ.length +
           ' running projects · week of 14 September 2026</p>' +
       '</div>' +
+      '<a class="btn" href="costing.html">Contract a phase</a>' +
     '</div>');
 
     h.push('<div class="rule-top metrics">' +
@@ -615,28 +639,6 @@
     state.gate = null;
   }
 
-  /* An hour is a record against the ticket's invoice line, carrying who did it
-     and the rate at the moment it was logged. On a rate line it moves the
-     line's value straight away. */
-  function doLog() {
-    var l = state.log, t = find(l.id);
-    var n = parseFloat(l.hours);
-    if (!n || n <= 0) { l.error = 'Enter the hours.'; return; }
-    if (!t.who) { l.error = 'Nobody is assigned, so there is no one to log against.'; return; }
-    BILL.logTime(t, t.who, n, '18 Sep');
-    var line = BILL.lineFor(t.id);
-    var d = derive(t);
-    state.log = null;
-    state.flash = hrs(n) + ' logged by ' + person(t.who).short + ' on ' + t.id +
-      ' → ' + d.bucket + '. ' +
-      (!line
-        ? 'No invoice line covers this work, so it is worth nothing to the client.'
-        : line.basis === 'rate'
-          ? line.id + ' is now worth ' + money(BILL.value(line)) + ' — ' +
-            hrs(BILL.loggedHours(line)) + ' at ' + money(line.rate) + ' an hour.'
-          : line.id + ' is a flat ' + money(line.flat) + ', so the hour is already in the fee.');
-  }
-
   /* §5.1 — a ticket only leaves intake once an assignee, an estimate AND a
      window are all present, however they were entered. */
   function settle(t) {
@@ -691,17 +693,37 @@
       var was = t.state;
       t.state = raw;
       if (raw !== 'blocked') { t.blockNote = null; }
+
+      /* The clock follows the state and nothing else: leaving In progress
+         closes the span and writes its hours, entering it opens a new one. */
+      var shut = null;
+      if (was === 'progress') { shut = PLAN.clockOff(t); }
+      if (raw === 'progress' && t.who) { PLAN.clockOn(t, t.who); }
+
       var byWho = t.who ? ' by ' + person(t.who).short : '';
+      var clockNote = '';
+      if (shut && shut.hours > 0) {
+        var line = PLAN.itemFor(t.id);
+        clockNote = ' The clock ran ' + PLAN.clockLabel(shut.on) + ' → ' +
+          PLAN.clockLabel(shut.off) + ', so ' + hrs(shut.hours) + ' landed on ' +
+          (line ? line.id + ', now worth ' + PLAN.money(PLAN.value(line)) : 'overhead') + '.';
+      } else if (shut) {
+        clockNote = ' The clock ran for less than a working minute, so nothing landed.';
+      } else if (raw === 'progress' && t.who) {
+        clockNote = ' The clock is running — it stops when the state changes again.';
+      }
+
       if (raw === 'done' && t.est && !logged(t)) {
-        /* §10 — closing with nothing logged is the compliance hole. Say so. */
-        state.flash = t.id + ' closed' + byWho + ' with no hours logged against it. Its ' +
+        /* §10 — closing with nothing on the clock is the compliance hole. */
+        state.flash = t.id + ' closed' + byWho + ' without ever being In progress, so its ' +
           hrs(t.est) + ' estimate never becomes an actual.';
       } else if (raw === 'intake') {
         state.flash = t.id + ' sent back to intake from ' +
-          STATES.filter(function (s) { return s.id === was; })[0].name.toLowerCase() + '.';
+          STATES.filter(function (s) { return s.id === was; })[0].name.toLowerCase() + '.' + clockNote;
       } else {
         state.flash = t.id + ' moved to ' +
-          STATES.filter(function (s) { return s.id === raw; })[0].name.toLowerCase() + byWho + '.';
+          STATES.filter(function (s) { return s.id === raw; })[0].name.toLowerCase() + byWho + '.' +
+          clockNote;
       }
       return;
     } else if (key === 'start' || key === 'due') {
@@ -734,15 +756,12 @@
     else if (act === 'sort') { state.sort = val; }
     else if (act === 'open') {
       state.open = (state.open === val ? '' : val);
-      state.log = null; state.gate = null; state.flash = '';
+      state.gate = null; state.flash = '';
       t = find(state.open);
       /* Land straight on the gate when the ticket is blocked by one. */
       if (t) { var g = gate(t); if (g && g.open) { state.gate = { id: t.id, choice: '', reason: '' }; } }
     }
-    else if (act === 'close') { state.open = ''; state.log = null; state.gate = null; }
-    else if (act === 'cancel') { state.log = null; }
-    else if (act === 'log-open') { state.log = { id: val, hours: '' }; state.flash = ''; }
-    else if (act === 'log-do') { doLog(); }
+    else if (act === 'close') { state.open = ''; state.gate = null; }
     else if (act === 'gf') {
       state.gate = state.gate || { id: state.open };
       state.gate.choice = val; state.gate.reason = ''; state.gate.error = '';
@@ -753,19 +772,13 @@
     render();
   });
 
-  /* Field edits keep their own state so a re-render does not lose typing. */
-  app.addEventListener('input', function (e) {
-    var el = e.target.closest('[data-act]');
-    if (!el) { return; }
-    var act = el.getAttribute('data-act'), key = el.getAttribute('data-val');
-    if (act === 'lf' && state.log) { state.log[key] = el.value; state.log.error = ''; }
-  });
   /* Row edits commit on change rather than on every keystroke, so typing an
      estimate is not interrupted by a re-render. */
   app.addEventListener('change', function (e) {
     var el = e.target.closest('[data-act]');
     if (!el) { return; }
     var act = el.getAttribute('data-act'), val = el.getAttribute('data-val');
+
     if (act === 'set-who') { setField(val, 'who', el.value); }
     else if (act === 'set-est') { setField(val, 'est', el.value); }
     else if (act === 'set-state') { setField(val, 'state', el.value); }
@@ -776,4 +789,13 @@
   });
 
   render();
+
+  /* A running clock has to look like one. Only the figure is touched — a
+     re-render here would pull the panel out from under the pointer. */
+  setInterval(function () {
+    var cells = app.querySelectorAll('[data-clock]');
+    for (var i = 0; i < cells.length; i += 1) {
+      cells[i].textContent = hrs(PLAN.running(cells[i].getAttribute('data-clock')));
+    }
+  }, 15000);
 })();

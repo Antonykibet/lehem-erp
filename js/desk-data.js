@@ -4,7 +4,7 @@
 
    The shape follows the data ingestion spec: work types carry a bucket rule,
    phases carry a fee type and a revision allowance, and a ticket's bucket is
-   derived from those two things — never chosen by the person logging time. */
+   derived from those two things — never chosen by anyone, and never typed. */
 var DESK = (function () {
   'use strict';
 
@@ -66,19 +66,24 @@ var DESK = (function () {
 
   /* ------------------------------------------------------------ the buckets */
 
+  /* Three buckets, and only the first is paid for. Every hour the firm
+     charges for sits on a work item in a phase plan, at the assignee's own
+     rate — there are no flat-fee lines, so there is no fourth way in. */
   var BUCKETS = {
-    bill: { name: 'Billed by the hour', paid: 'Design fee', tone: 'earn' },
-    fee: { name: 'Covered by a flat fee', paid: 'Design fee', tone: 'earn' },
+    planned: { name: 'On a planned work item', paid: 'The phase fee', tone: 'earn' },
     sourcing: { name: 'FF&E coordination', paid: 'Nothing — currently unpriced', tone: 'drag' },
     over: { name: 'Admin, business development, internal', paid: 'Overhead', tone: 'over' }
   };
 
-  /* Fee type on a phase decides the bucket for design and site work (§1). */
+  /* Whether a phase has been contracted at all. Anything other than
+     `unbilled` is under an agreed fee, and its work items are planned at the
+     assignee's rate; `unbilled` means no plan exists, so the hours are
+     overhead until one does (§1). */
   var FEE_TYPES = {
-    hourly: { label: 'Hourly', bucket: 'bill' },
-    fixed: { label: 'Fixed fee', bucket: 'fee' },
-    psf: { label: 'Per m²', bucket: 'fee' },
-    unbilled: { label: 'Unbilled', bucket: 'over' }
+    hourly: { label: 'Contracted', bucket: 'planned' },
+    fixed: { label: 'Contracted', bucket: 'planned' },
+    psf: { label: 'Contracted', bucket: 'planned' },
+    unbilled: { label: 'Not contracted', bucket: 'over' }
   };
 
   var PHASE_KEYS = ['concept', 'initial', 'detail', 'site', 'handover'];
@@ -160,6 +165,9 @@ var DESK = (function () {
      Suggested starting rates by role, in dollars an hour. The contracting
      user sets the actual rate on each line — these only seed the field. */
 
+  /* The charge-out rate for an hour. A role carries the default, set once
+     at onboarding; a person can sit above or below it. Nobody types a rate
+     when planning work — it follows whoever the item is given to. */
   var RATE_BY_ROLE = {
     'Creative lead': 120,
     'Interior designer': 85,
@@ -171,9 +179,18 @@ var DESK = (function () {
     'Business & admin': 50
   };
 
+  /* Where a person is charged out at something other than their role's
+     default — seniority, a long-standing client arrangement. Set in
+     Settings; everyone not listed here follows their role. */
+  var RATE_BY_PERSON = {
+    ao: 150,   /* Chief Creative Director */
+    wg: 95,    /* senior, above the designer default */
+    ak: 72     /* most experienced of the CAD technicians */
+  };
+
   /* --------------------------------------------------------- the contracts
-     Signed at Won. The design fee is allocated per phase, and flat-fee
-     invoice lines draw down against it (§3, event 2). */
+     Signed at Won. The design fee is allocated per phase, and the work items
+     planned into that phase draw down against it (§3, event 2). */
 
   var CONTRACTS = {
     halcyon: { signed: '6 Jan 2026', fee: { concept: 3600, initial: 9200, detail: 12400, site: 8200, handover: 2200 } },
@@ -187,20 +204,6 @@ var DESK = (function () {
 
   /* Which template line items are normally a flat deliverable rather than
      hourly production. The contracting user can override either way. */
-  var FLAT_BY_TYPE = {
-    concept: true, present: true, spec: true,
-    dwg100: false, dwg200: false, dwg300: false, revision: false,
-    sitevisit: false, rfi: false, submittal: false, snag: false, valuation: false,
-    enquiry: false, followup: false, delivery: false, reselect: false
-  };
-
-  /* Invoice states, in the order they move through. */
-  var INVOICE_STATES = [
-    { id: 'draft', name: 'Draft', note: 'Contracted, not yet sent' },
-    { id: 'issued', name: 'Issued', note: 'Sent to the client' },
-    { id: 'part', name: 'Part paid', note: 'Some of it has come in' },
-    { id: 'paid', name: 'Paid', note: 'Settled' }
-  ];
 
   /* ------------------------------------------------------------- the states */
 
@@ -310,12 +313,36 @@ var DESK = (function () {
     { id: 'LEH-433', p: null, ph: null, type: 'admin', title: 'Revit upgrade training session', est: null, state: 'intake' }
   ];
 
+  /* ------------------------------------------------- tickets raised today
+
+     Contracting happens on Costing and the queue is on the Service Desk, so
+     a phase raised on one screen has to still be there on the other. There
+     is no server behind this prototype, so the new tickets ride along in
+     sessionStorage for the length of the visit and are merged back in at
+     the front of the queue on every screen that reads work. Closing the tab
+     clears them and the sample data is whole again. */
+
+  var RAISED = 'lehem.raised';
+  function raisedToday() {
+    try { return JSON.parse(window.sessionStorage.getItem(RAISED) || '[]'); }
+    catch (e) { return []; }
+  }
+  function rememberRaised(list) {
+    try {
+      window.sessionStorage.setItem(RAISED, JSON.stringify(raisedToday().concat(list)));
+    } catch (e) { /* private browsing, or storage turned off — the screen still works */ }
+  }
+  var carried = raisedToday().filter(function (t) {
+    return !TICKETS.some(function (x) { return x.id === t.id; });
+  });
+  TICKETS = carried.concat(TICKETS);
+
   return {
+    raisedToday: raisedToday, rememberRaised: rememberRaised,
     PEOPLE: PEOPLE, LEAVE: LEAVE, WORK_TYPES: WORK_TYPES, BUCKETS: BUCKETS,
     FEE_TYPES: FEE_TYPES, PHASE_KEYS: PHASE_KEYS, PHASE_NAMES: PHASE_NAMES,
     PHASE_SERIES: PHASE_SERIES, PROJECTS: PROJECTS, STATES: STATES,
     TEMPLATES: TEMPLATES, TICKETS: TICKETS,
-    RATE_BY_ROLE: RATE_BY_ROLE, CONTRACTS: CONTRACTS,
-    FLAT_BY_TYPE: FLAT_BY_TYPE, INVOICE_STATES: INVOICE_STATES
+    RATE_BY_ROLE: RATE_BY_ROLE, RATE_BY_PERSON: RATE_BY_PERSON, CONTRACTS: CONTRACTS
   };
 })();

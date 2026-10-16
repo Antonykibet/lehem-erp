@@ -5,7 +5,7 @@
   'use strict';
 
   /* The scorecards read the same records the module screens do. */
-  BILL.seed(DESK.TICKETS);
+  PLAN.seed(DESK.TICKETS);
 
   /* ------------------------------------------------------------------ data */
 
@@ -205,10 +205,11 @@
        Every figure here is computed from the same records the module screens
        read, so the front page cannot drift from them. */
 
-    var M = BILL.money;
-    var invs = BILL.store.invoices;
-    var openInvoice = function (i) { return i.state === 'issued' || i.state === 'part'; };
-    var owedOn = function (i) { return BILL.invoiceValue(i) - (i.paid || 0); };
+    var M = PLAN.money;
+    var livePlans = PLAN.store.plans.filter(function (p) { return !p.closed; });
+    var liveItems = livePlans.reduce(function (a, p) {
+      return a.concat(PLAN.itemsOf(p.id));
+    }, []);
 
     /* CRM */
     var liveLeads = CRM.openLeads();
@@ -245,23 +246,27 @@
     /* Utilization, from the derived buckets: the share of logged hours that
        somebody is paying for. Nobody picks a bucket, so this figure cannot be
        talked up — which is the only reason it is worth putting on a front page. */
-    var byBucket = { bill: 0, fee: 0, sourcing: 0, over: 0 };
+    var byBucket = { planned: 0, sourcing: 0, over: 0 };
     deskTickets.forEach(function (t) {
-      byBucket[BILL.derive(t).bucket] += BILL.loggedOnTicket(t.id);
+      byBucket[PLAN.derive(t).bucket] += PLAN.loggedOnTicket(t.id);
     });
-    var loggedTotal = byBucket.bill + byBucket.fee + byBucket.sourcing + byBucket.over;
+    var loggedTotal = byBucket.planned + byBucket.sourcing + byBucket.over;
     var pct = function (n) { return loggedTotal ? Math.round(n / loggedTotal * 100) : 0; };
-    var earning = byBucket.bill + byBucket.fee;
-    /* Financials */
-    var wip = invs.filter(function (i) { return i.state === 'draft'; })
-      .reduce(function (a, i) { return a + BILL.invoiceValue(i); }, 0);
-    var wipFc = invs.filter(function (i) { return i.state === 'draft'; })
-      .reduce(function (a, i) { return a + BILL.invoiceForecast(i); }, 0);
-    var owedTotal = invs.filter(openInvoice).reduce(function (a, i) { return a + owedOn(i); }, 0);
-    var overdue = invs.filter(function (i) { return BILL.isOverdue(i); })
-      .reduce(function (a, i) { return a + owedOn(i); }, 0);
-    var overdueN = invs.filter(function (i) { return BILL.isOverdue(i); }).length;
-    var owedN = invs.filter(openInvoice).filter(function (i) { return owedOn(i) > 0; }).length;
+    var earning = byBucket.planned;
+    /* Planning: what is committed on phases still in flight, and how much of
+       that estimate has been used. Closed phases are history and left out. */
+    var committed = Math.round(liveItems.reduce(function (a, w) {
+      return a + (w.est || 0);
+    }, 0) * 10) / 10;
+    var loggedOnPlan = Math.round(liveItems.reduce(function (a, w) {
+      return a + PLAN.loggedHours(w);
+    }, 0) * 10) / 10;
+    var leftOnPlan = Math.max(0, Math.round((committed - loggedOnPlan) * 10) / 10);
+    var spentItems = liveItems.filter(function (w) {
+      return w.est > 0 && PLAN.loggedHours(w) >= w.est;
+    });
+    var planValue = livePlans.reduce(function (a, p) { return a + PLAN.planValue(p); }, 0);
+    var planFc = livePlans.reduce(function (a, p) { return a + PLAN.planForecast(p); }, 0);
 
     /* A card's optional bar is a stacked part-to-whole: segments in a fixed
        order, each with its own key, so nothing is carried by colour alone. */
@@ -299,20 +304,24 @@
         liveLeads.length + ' live enquiries worth $' + (pipeline / 1000).toFixed(2) +
         'M at full value · ' + nextUp + ' close to a decision') +
       card('workload.html', 'Utilization', pct(earning) + '%',
-        'of ' + BILL.hrs(loggedTotal) + ' logged · the share somebody is paying for',
+        'of ' + PLAN.hrs(loggedTotal) + ' logged · the share somebody is paying for',
         bar([
-          { v: byBucket.bill, color: 'var(--b1)', label: pct(byBucket.bill) + '% billed by the hour' },
-          { v: byBucket.fee, color: 'var(--b3)', label: pct(byBucket.fee) + '% inside a fee' },
+          { v: byBucket.planned, color: 'var(--b1)', label: pct(byBucket.planned) + '% on a planned work item' },
           { v: byBucket.sourcing, color: 'var(--b2)', label: pct(byBucket.sourcing) + '% FF&amp;E, unpriced' },
           { v: byBucket.over, color: 'var(--grid)', label: pct(byBucket.over) + '% overhead' }
         ])) +
-      card('financials.html', 'Work in progress', M(wip),
-        'Earned on draft invoices, not yet sent · ' + M(wipFc) + ' forecast when complete') +
-      card('financials.html', 'Owed by clients', M(owedTotal), owedN + ' invoices out',
+      card('desk.html', 'Committed work', PLAN.hrs(committed),
+        liveItems.length + ' work items on ' + livePlans.length + ' open phases',
         bar([
-          { v: owedTotal - overdue, color: 'var(--b1)', label: M(owedTotal - overdue) + ' within terms' },
-          { v: overdue, color: 'var(--crit)', label: M(overdue) + ' overdue' }
+          { v: loggedOnPlan, color: 'var(--b1)', label: PLAN.hrs(loggedOnPlan) + ' logged' },
+          { v: leftOnPlan, color: 'var(--grid)', label: PLAN.hrs(leftOnPlan) + ' of estimate left' }
         ])) +
+      card('desk.html', 'Value planned', M(planValue),
+        'Worth of the work in flight · ' + M(planFc) + ' forecast when complete' +
+        (spentItems.length
+          ? ' · ' + spentItems.length + ' item' + (spentItems.length === 1 ? '' : 's') +
+            ' past estimate'
+          : '')) +
     '</div>');
 
     var counts = PHASES.map(function (ph, i) {
