@@ -217,10 +217,10 @@
     var weighted = CRM.weighted();
     var nextUp = CRM.inStage('negotiation').length + CRM.inStage('proposal').length;
 
-    /* Service desk */
+    /* Team schedule */
     var deskTickets = DESK.TICKETS;
-    var openStates = ['assigned', 'progress', 'blocked', 'review'];
-    /* The same week-share the Service Desk counts: an estimate spread across
+    var openStates = ['assigned', 'progress', 'blocked', 'internal', 'external'];
+    /* The same week-share the Team Schedule counts: an estimate spread across
        its window, and only the part that lands in this week. */
     var WEEK_A = new Date(2026, 8, 14), WEEK_B = new Date(2026, 8, 18);
     function parseDay(v) {
@@ -406,7 +406,7 @@
             '<div><span class="panel-num">55%</span><span class="panel-cap">billed as fees</span></div>' +
             '<div><span class="panel-num">2</span><span class="panel-cap">booked past full</span></div>' +
           '</div>' +
-          /* Each chip opens the service desk filtered to that person, so the
+          /* Each chip opens the team schedule filtered to that person, so the
              question "who is overbooked?" leads straight to what they are on. */
           '<div class="team-strip">' +
             TEAM.map(function (p) {
@@ -414,7 +414,7 @@
               var who = DESK.PEOPLE.filter(function (x) { return x.initials === p.initials; })[0];
               var pct = Math.round(p.r * 100);
               var label = (who ? who.name : p.initials) + ' — ' + pct + '% booked' +
-                (p.r > 1.0 ? ', past full' : '') + '. Open their tickets.';
+                (p.r > 1.0 ? ', past full' : '') + '. Open their tasks.';
               return '<a class="team-chip" href="desk.html' +
                 (who ? '?who=' + who.id : '') + '" title="' + esc(label) + '"' +
                 ' style="background:' + color + '; color:' +

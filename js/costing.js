@@ -1,4 +1,4 @@
-/* Lehem Interiors — Costing: the phase ledger.
+/* Lehem Interiors — Work Setup: the phase ledger.
 
    Every phase that has been contracted left a record behind: the fee that
    was agreed, the work items it was broken into, the rate each one was
@@ -13,7 +13,7 @@
                   turned into so far
 
    Nothing here is editable. A phase is costed when it is contracted, on the
-   Service Desk, and the rates come from Settings. This screen reads. */
+   Team Schedule, and the rates come from Settings. This screen reads. */
 (function () {
   'use strict';
 
@@ -84,8 +84,8 @@
   }
 
   /* Who has room. The planner needs this to suggest an owner for each line,
-     so it is the same arithmetic the Service Desk's capacity rail runs. */
-  var OPEN_STATES = ['assigned', 'progress', 'blocked', 'review'];
+     so it is the same arithmetic the Team Schedule's capacity rail runs. */
+  var OPEN_STATES = ['assigned', 'progress', 'blocked', 'internal', 'external'];
   function weekHours(t) {
     if (!t.est || !t.start || !t.due) { return 0; }
     var a = parseDay(t.start), b = parseDay(t.due);
@@ -115,10 +115,10 @@
 
      This is where a phase becomes work: its template lines each get an
      owner, an estimate and a window, are priced at that person's rate, and
-     are raised as tickets in one go. It lives on this screen because what
+     are raised as tasks in one go. It lives on this screen because what
      it produces is a plan, and the plan is what the ledger below holds. */
 
-  /* Ticket ids carry on from the highest already in the queue, so a second
+  /* Task ids carry on from the highest already in the queue, so a second
      phase contracted in the same visit cannot reuse the first one's numbers. */
   var seq = TICKETS.reduce(function (a, t) {
     var n = parseInt(String(t.id).replace('LEH-', ''), 10);
@@ -131,7 +131,7 @@
      Work reaches this board one of two ways: raised ad hoc, or planned in
      bulk when a phase is contracted. This is the second — the templates for
      a phase, each line given an owner and an estimate, priced at that
-     person's rate, and raised as tickets in one go. */
+     person's rate, and raised as tasks in one go. */
 
   var AFFINITY = {
     concept: ['Creative lead', 'Interior designer'],
@@ -183,7 +183,7 @@
      cursor through the calendar, so two people planned on the same phase
      start alongside each other instead of queueing up behind one another,
      and six hours is taken as a day's work on one item. The lead edits
-     whichever row is wrong — these are the dates the ticket is raised with,
+     whichever row is wrong — these are the dates the task is raised with,
      and they are not editable again afterwards. */
   function planWindows(rows) {
     var cursor = {};
@@ -219,8 +219,8 @@
 
     return '<div class="tmpl">' +
       '<div class="tmpl-head">' +
-        '<div><div class="caps">Contract a phase</div>' +
-        '<p class="why-sub">Break the phase into work items before any of it is raised. Each line becomes a work item with an owner, an estimate and a window, and each work item becomes a ticket carrying all three — none of it is typed again on the ticket afterwards. The rate is not set here either: it belongs to whoever the line is given to, so moving a line to somebody else reprices it.</p></div>' +
+        '<div><div class="caps">Plan a phase</div>' +
+        '<p class="why-sub">Break the phase into tasks before any of it is raised. Each one gets an owner, an estimate and a window here, and is raised onto the Team Schedule carrying all three — none of it is typed again afterwards. The rate is not set here either: it belongs to whoever the task is given to, so moving a task to somebody else reprices it.</p></div>' +
         '<button type="button" class="btn" data-act="contract-cancel">Close</button>' +
       '</div>' +
 
@@ -253,7 +253,7 @@
 
       (c.error ? '<div class="form-err">' + esc(c.error) + '</div>' : '') +
       '<div class="dk-actions">' +
-        '<button type="button" class="btn btn-go" data-act="contract-do">Raise these tickets</button>' +
+        '<button type="button" class="btn btn-go" data-act="contract-do">Raise these tasks</button>' +
       '</div>' +
     '</div>';
   }
@@ -290,13 +290,13 @@
               '<span class="fee-key"><span class="fee-dot now"></span>This plan ' + money(nowPlanned) + '</span>' +
               '<span class="fee-key">' + pct + '% of the fee committed</span>' +
             '</div>' +
-            '<p class="fee-foot">Every work item draws the fee down at its assignee\u2019s rate \u00d7 the hours it is given. Move a line to somebody charged out differently and this moves with it.</p>';
+            '<p class="fee-foot">Every task draws the fee down at its assignee\u2019s rate \u00d7 the hours it is given. Move a task to somebody charged out differently and this moves with it.</p>';
   }
 
   function totalsInner(rows) {
     var nowPlanned = rows.reduce(function (a, r) { return a + rowAmount(r); }, 0);
     var hoursPlanned = rows.reduce(function (a, r) { return a + (parseFloat(r.est) || 0); }, 0);
-    return '<span>' + rows.length + ' work items</span>' +
+    return '<span>' + rows.length + ' task' + (rows.length === 1 ? '' : 's') + '</span>' +
       '<span>' + hrs(hoursPlanned) + ' committed</span>' +
       '<span class="ltotal-big">' + money(nowPlanned) + ' planned</span>';
   }
@@ -306,7 +306,7 @@
       (PLAN.rateIsPersonal(r.who) ? 'set on them' : 'their role\u2019s rate') + '</span>';
   }
   function amountInner(r) {
-    return money(rowAmount(r)) + '<span class="lamt-sub">as hours are logged</span>';
+    return money(rowAmount(r)) + '<span class="lamt-sub">as the work is done</span>';
   }
 
   /* Update what the numbers say without replacing the panel. */
@@ -335,12 +335,12 @@
 
   function listInner(rows) {
     return '<div class="lgrid lgrid-head">' +
-              '<span class="caps">Line item</span>' +
+              '<span class="caps">Task</span>' +
               '<span class="caps">Assignee</span>' +
               '<span class="caps num">Their rate</span>' +
               '<span class="caps num">Hours</span>' +
               '<span class="caps">Window</span>' +
-              '<span class="caps num">Committed</span>' +
+              '<span class="caps num">Cost</span>' +
             '</div>' +
             rows.map(function (r, i) {
               var l = person(r.who) ? load(r.who) : null;
@@ -375,7 +375,7 @@
                 '<span class="lamt">' + amountInner(r) + '</span>' +
                 (isFF
                   ? '<span class="lnote">Planning FF&amp;E coordination moves these hours out of ' +
-                    'unpriced drag and into earning. Remove the line to leave them unpriced.</span>'
+                    'unpriced drag and into earning. Remove the task to leave them unpriced.</span>'
                   : '') +
               '</div>';
             }).join('') +
@@ -388,14 +388,16 @@
     if (!c.project || !c.phase) { c.error = 'Pick a project and a phase.'; return; }
     var noWho = c.rows.filter(function (r) { return !r.who || !PLAN.rateFor(r.who); });
     if (noWho.length) {
-      c.error = noWho.length + ' line' + (noWho.length === 1 ? '' : 's') +
-        ' has nobody on it, so there is no rate to commit it at.';
+      c.error = noWho.length + ' task' + (noWho.length === 1 ? '' : 's') +
+        ' ' + (noWho.length === 1 ? 'has' : 'have') +
+        ' nobody on it, so there is no rate to commit it at.';
       return;
     }
     var noEst = c.rows.filter(function (r) { return !(parseFloat(r.est) > 0); });
     if (noEst.length) {
-      c.error = noEst.length + ' line' + (noEst.length === 1 ? '' : 's') +
-        ' has no estimated hours, so the ticket it raises would carry no capacity.';
+      c.error = noEst.length + ' task' + (noEst.length === 1 ? '' : 's') +
+        ' ' + (noEst.length === 1 ? 'has' : 'have') +
+        ' no estimated hours, so nothing would reach the heatmap.';
       return;
     }
     var badWin = c.rows.filter(function (r) {
@@ -403,18 +405,19 @@
       return !a || !b || b < a;
     });
     if (badWin.length) {
-      c.error = badWin.length + ' line' + (badWin.length === 1 ? '' : 's') +
-        ' has no usable window. Dates read like \u201c22 Sep\u201d, and the due date ' +
+      c.error = badWin.length + ' task' + (badWin.length === 1 ? '' : 's') +
+        ' ' + (badWin.length === 1 ? 'has' : 'have') +
+        ' no usable window. Dates read like \u201c22 Sep\u201d, and the due date ' +
         'cannot come before the start \u2014 without a window the estimate never ' +
         'reaches the heatmap.';
       return;
     }
     var made = PLAN.contractPhase(c.project, c.phase, c.rows);
     var raised = [];
-    /* The tickets come from the work items, not the other way round. */
+    /* The tasks come from the work items, not the other way round. */
     made.items.forEach(function (item, i) {
       /* Owner, estimate and window all came from the plan, so §5.1 is already
-         satisfied and the ticket is assigned the moment it is raised. Nothing
+         satisfied and the task is assigned the moment it is raised. Nothing
          about it is typed a second time. */
       var t = {
         id: nextId(), p: c.project, ph: c.phase, type: c.rows[i].type,
@@ -426,7 +429,7 @@
       raised.push(t);
       PLAN.attachTicket(item.id, t.id);
     });
-    /* The queue is on another screen, so the tickets have to travel. */
+    /* The queue is on another screen, so the tasks have to travel. */
     DESK.rememberRaised(raised);
     var pr = proj(c.project);
     var hours = made.items.reduce(function (a, w) { return a + w.est; }, 0);
@@ -437,9 +440,10 @@
        opens underneath with the work items that were just committed. */
     state.project = 'all';
     state.open = made.plan.id;
-    state.flash = made.plan.id + ' — ' + made.items.length + ' work items planned for ' +
+    state.flash = made.plan.id + ' — ' + made.items.length + ' task' +
+      (made.items.length === 1 ? '' : 's') + ' planned for ' +
       PHASE_NAMES[c.phase] + ' on ' + pr.name + ', ' + hrs(hours) + ' committed and worth ' +
-      money(total) + '. ' + listOf(ids) + ' are on the Service Desk, assigned, each with ' +
+      money(total) + '. ' + listOf(ids) + ' are on the Team Schedule, assigned, each with ' +
       'its owner, estimate and window already set.';
   }
 
@@ -547,7 +551,7 @@
         '<div><div class="caps">' + pl.id + (pl.closed ? ' · finished' : ' · in flight') + '</div>' +
           '<div class="detail-name">' + esc(PHASE_NAMES[pl.phase]) + ' on ' +
             esc(pr ? pr.name : pl.project) + '</div>' +
-          '<div class="detail-meta">Contracted ' + esc(pl.agreed || 'earlier') + ' · ' +
+          '<div class="detail-meta">Planned ' + esc(pl.agreed || 'earlier') + ' · ' +
             items.length + ' work items · ' + hrs(t.hours) + ' committed</div>' +
         '</div>' +
         '<button type="button" class="btn" data-act="close">Close</button>' +
@@ -599,7 +603,7 @@
       '</tbody></table>' +
 
       '<p class="section-sub">Rates are the ones held at the moment the phase was ' +
-        'contracted. Changing somebody’s rate in Settings moves what the next phase is ' +
+        'planned. Changing somebody’s rate in Settings moves what the next phase is ' +
         'committed at, never this one — repricing history would quietly rewrite what the ' +
         'firm thought it had earned.</p>' +
     '</div>';
@@ -614,11 +618,11 @@
     h.push('<div class="header-row">' +
       '<div>' +
         '<div class="caps">Money</div>' +
-        '<h1 class="page-title">Costing</h1>' +
-        '<p class="page-sub">Every phase that has been contracted — the fee agreed, the work ' +
+        '<h1 class="page-title">Work Setup</h1>' +
+        '<p class="page-sub">Every phase that has been set up — the fee agreed, the work ' +
           'planned against it, and what the hours have earned</p>' +
       '</div>' +
-      '<button type="button" class="btn btn-go" data-act="contract-open">Contract a phase</button>' +
+      '<button type="button" class="btn btn-go" data-act="contract-open">Plan a phase</button>' +
     '</div>');
 
     if (state.flash) {
@@ -650,7 +654,7 @@
         '<div class="metric-value">' + money0(Math.abs(all.left)) + '</div>' +
         '<div class="metric-note">' + (all.left < 0
           ? 'More work has been promised than the fees cover'
-          : 'Fee left to break into work items when the phases are contracted') + '</div>' +
+          : 'Fee left to break into tasks when the phases are planned') + '</div>' +
       '</div>' +
     '</div>');
 
@@ -683,7 +687,7 @@
       '<div class="section-head">' +
         '<div>' +
           '<div class="caps">The ledger</div>' +
-          '<h2 class="section-title">Every phase contracted</h2>' +
+          '<h2 class="section-title">Every phase planned</h2>' +
           '<p class="section-sub">One row per plan. Open one to see the work items it was ' +
             'broken into, who each is charged at, and what the clock has put against it.</p>' +
         '</div>' +
@@ -699,7 +703,7 @@
           money(t.earned) + ' earned</div>'
         : '') +
       '<table class="data-table"><thead><tr>' +
-        '<th>Plan</th><th>Project · phase</th><th>Contracted</th><th class="num">Items</th>' +
+        '<th>Plan</th><th>Project · phase</th><th>Planned on</th><th class="num">Items</th>' +
         '<th class="num">Hours</th><th class="num">Priced at</th>' +
         '<th class="num">Earned</th><th class="num">Over estimate</th>' +
       '</tr></thead><tbody>' +

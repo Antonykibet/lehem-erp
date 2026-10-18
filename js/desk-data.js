@@ -1,9 +1,9 @@
-/* Lehem Interiors — service desk: the model.
-   Sample data for demonstration. The team names are real; every ticket,
+/* Lehem Interiors — team schedule: the model.
+   Sample data for demonstration. The team names are real; every task,
    estimate and time entry below is invented.
 
    The shape follows the data ingestion spec: work types carry a bucket rule,
-   phases carry a fee type and a revision allowance, and a ticket's bucket is
+   phases carry a fee type and a revision allowance, and a task's bucket is
    derived from those two things — never chosen by anyone, and never typed. */
 var DESK = (function () {
   'use strict';
@@ -212,11 +212,14 @@ var DESK = (function () {
     { id: 'assigned', name: 'Assigned', note: 'Has an owner, estimate and window' },
     { id: 'progress', name: 'In progress', note: 'Being worked on now' },
     { id: 'blocked', name: 'Blocked', note: 'Waiting on someone or something' },
-    { id: 'review', name: 'In review', note: 'With the lead or the client' },
+    /* Review splits in two because the two waits are nothing alike: one is
+       ours to clear, the other is somebody else's desk and we can only chase. */
+    { id: 'internal', name: 'Internal review', note: 'With the lead for check before it goes out' },
+    { id: 'external', name: 'External review', note: 'With the client or consultant — out of our hands' },
     { id: 'done', name: 'Done', note: 'Closed this week' }
   ];
 
-  /* --------------------------------------------------- phase ticket templates
+  /* --------------------------------------------------- phase task templates
      §5.3. Opening a phase spawns its standard set, so the lead edits and
      assigns rather than composes. */
 
@@ -249,15 +252,15 @@ var DESK = (function () {
     ]
   };
 
-  /* ------------------------------------------------------------- the tickets
+  /* ------------------------------------------------------------- the tasks
      `est` is the estimate in hours, `logged` the hours already booked.
-     A ticket in `intake` has no assignee, no estimate and no window — which is
+     A task in `intake` has no assignee, no estimate and no window — which is
      exactly why it cannot reach the heatmap until someone assigns it (§5.1). */
 
   var TICKETS = [
     /* --- Halcyon House (on site) --- */
     { id: 'LEH-401', p: 'halcyon', ph: 'site', type: 'sitevisit', title: 'Week 12 site inspection', who: 'an', est: 6, logged: 4.5, start: '15 Sep', due: '19 Sep', state: 'progress' },
-    { id: 'LEH-402', p: 'halcyon', ph: 'site', type: 'rfi', title: 'RFI 41 — bulkhead height at the stair', who: 'ak', est: 3, logged: 3, start: '15 Sep', due: '17 Sep', state: 'review' },
+    { id: 'LEH-402', p: 'halcyon', ph: 'site', type: 'rfi', title: 'RFI 41 — bulkhead height at the stair', who: 'ak', est: 3, logged: 3, start: '15 Sep', due: '17 Sep', state: 'external' },
     { id: 'LEH-403', p: 'halcyon', ph: 'site', type: 'delivery', title: 'Install sequence for the joinery delivery', who: 'mn', est: 8, logged: 6, start: '14 Sep', due: '18 Sep', state: 'progress' },
     { id: 'LEH-404', p: 'halcyon', ph: 'site', type: 'followup', title: 'Chase the stone supplier on the vanity tops', who: 'mn', est: 4, logged: 3.5, start: '15 Sep', due: '19 Sep', state: 'progress' },
     /* The gate case: site allowance is 2 and 2 are used, so this one blocks. */
@@ -273,7 +276,7 @@ var DESK = (function () {
     { id: 'LEH-392', p: 'redfern', ph: 'detail', type: 'revision', title: 'Revision — revised wardrobe internals', who: 'dm', est: 8, logged: 6, start: '15 Sep', due: '19 Sep', state: 'progress' },
 
     /* --- Marlow Hotel Lobby (detail drawing) --- */
-    { id: 'LEH-355', p: 'marlow', ph: 'detail', type: 'dwg300', title: '300-series — reception desk details', who: 'ak', est: 24, logged: 18, start: '10 Sep', due: '24 Sep', state: 'progress' },
+    { id: 'LEH-355', p: 'marlow', ph: 'detail', type: 'dwg300', title: '300-series — reception desk details', who: 'ak', est: 24, logged: 18, start: '10 Sep', due: '24 Sep', state: 'internal' },
     { id: 'LEH-356', p: 'marlow', ph: 'detail', type: 'dwg300', title: '300-series — lift lobby wall build-ups', who: 'ak', est: 16, logged: 11, start: '14 Sep', due: '26 Sep', state: 'progress' },
     { id: 'LEH-357', p: 'marlow', ph: 'detail', type: 'spec', title: 'Specification pack for tender', who: 'em', est: 14, logged: 4, start: '16 Sep', due: '30 Sep', state: 'assigned' },
     /* Detail allowance is 2 and 2 are used — the third revision blocks. */
@@ -313,11 +316,11 @@ var DESK = (function () {
     { id: 'LEH-433', p: null, ph: null, type: 'admin', title: 'Revit upgrade training session', est: null, state: 'intake' }
   ];
 
-  /* ------------------------------------------------- tickets raised today
+  /* ------------------------------------------------- tasks raised today
 
-     Contracting happens on Costing and the queue is on the Service Desk, so
+     Planning happens on Work Setup and the queue is on the Team Schedule, so
      a phase raised on one screen has to still be there on the other. There
-     is no server behind this prototype, so the new tickets ride along in
+     is no server behind this prototype, so the new tasks ride along in
      sessionStorage for the length of the visit and are merged back in at
      the front of the queue on every screen that reads work. Closing the tab
      clears them and the sample data is whole again. */

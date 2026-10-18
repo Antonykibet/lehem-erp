@@ -5,8 +5,8 @@
 
      contract a phase  →  the phase is broken into work items, each priced
                        →  the plan is recorded, its items carrying the prices
-                       →  tickets raised, one per item
-                       →  the assignee moves a ticket to In progress and the
+                       →  tasks raised, one per item
+                       →  the assignee moves a task to In progress and the
                           clock starts; the next state change stops it
                        →  the span becomes the time entry, lands on the item,
                           and moves the amount: rate × hours
@@ -178,7 +178,7 @@ var PLAN = (function () {
   /* -------------------------------------------------------------- writing */
 
   /* Contracting a phase: price the work items, record the plan, and hand the
-     items back so the tickets can be raised from them. */
+     items back so the tasks can be raised from them. */
   function contractPhase(projectId, phaseKey, rows, agreedOn) {
     var pl = {
       id: nextPlanId(), project: projectId, phase: phaseKey,
@@ -195,7 +195,7 @@ var PLAN = (function () {
         rate: rateFor(r.who),
         est: parseFloat(r.est) || 0,
         /* The window is part of the plan too — it is what spreads the
-           estimate across days, and the ticket is raised carrying it. */
+           estimate across days, and the task is raised carrying it. */
         start: r.start || null, due: r.due || null
       };
       store.items.push(item);
@@ -227,13 +227,13 @@ var PLAN = (function () {
 
   /* ------------------------------------------------------------ the clock
 
-     Nobody types hours into this tool. A ticket earns them by sitting in
+     Nobody types hours into this tool. A task earns them by sitting in
      In progress: moving it there starts the clock, moving it anywhere else
      stops it, and the span between those two transitions becomes the time
      entry. The assignee never estimates after the fact and never rounds to
      the nearest half hour, which is where timesheets lose their credibility.
 
-     Only working hours count. A ticket left In progress on Friday evening
+     Only working hours count. A task left In progress on Friday evening
      and closed on Monday morning is worth the hours inside the working days
      it actually spanned, not the seventy that elapsed. */
 
@@ -342,9 +342,9 @@ var PLAN = (function () {
 
   /* ---------------------------------------------------------------- seed
 
-     The tickets already in the system were planned before this screen
+     The tasks already in the system were planned before this screen
      existed, so their plans are reconstructed: every contracted phase gets
-     a work item per ticket, priced at its assignee's rate, and an
+     a work item per task, priced at its assignee's rate, and an
      uncontracted phase gets no plan at all — which is why Verdant's
      pre-contract concept hours sit in overhead. */
 
@@ -382,8 +382,8 @@ var PLAN = (function () {
     });
 
     /* Phases the projects have already finished were planned before this
-       week and their tickets are long closed, so they appear as a single
-       item at the contracted fee rather than as a ticket breakdown. Without
+       week and their tasks are long closed, so they appear as a single
+       item at the contracted fee rather than as a task breakdown. Without
        them the ledger would only show work in flight. */
     DESK.PROJECTS.forEach(function (pr) {
       DESK.PHASE_KEYS.slice(0, pr.at).forEach(function (ph, i) {
@@ -397,7 +397,7 @@ var PLAN = (function () {
            hours it took, back-figured at the lead's rate. Those hours are
            booked straight onto the item — the phase is done, so the work
            happened, and a closed plan showing nothing logged would read as
-           a phase nobody ever worked. The entry carries no ticket, which
+           a phase nobody ever worked. The entry carries no task, which
            keeps it out of this week's utilization where it does not belong. */
         var lead = pr.lead;
         var hoursTaken = Math.round(fee / (rateFor(lead) || 85));
@@ -414,10 +414,10 @@ var PLAN = (function () {
       });
     });
 
-    /* Hours already on a ticket got there the only way this tool allows:
+    /* Hours already on a task got there the only way this tool allows:
        as spans of In progress. They are laid back into working days from
-       the ticket's start, capped at six hours a day because nobody sits on
-       one ticket from nine to six, and each closed span writes its entry. */
+       the task's start, capped at six hours a day because nobody sits on
+       one task from nine to six, and each closed span writes its entry. */
     tickets.forEach(function (t) {
       if (!t.logged || !t.who) { return; }
       var left = Math.round(t.logged * 10) / 10;
@@ -443,7 +443,7 @@ var PLAN = (function () {
       }
     });
 
-    /* A ticket caught mid-flight has its clock still running — the span is
+    /* A task caught mid-flight has its clock still running — the span is
        open, so its hours are not an entry yet and will not be until the
        state moves on. That is the honest state of a desk at any moment. */
     tickets.forEach(function (t) {

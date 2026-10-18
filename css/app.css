@@ -501,8 +501,10 @@ a.team-chip:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); z-
   background:rgba(57,135,229,0.10); }
 .state-sel.st-blocked { color:var(--warn); border-color:rgba(250,178,25,0.5);
   background:rgba(250,178,25,0.10); }
-.state-sel.st-review { color:var(--accent); border-color:rgba(168,209,90,0.5);
+.state-sel.st-internal { color:var(--accent); border-color:rgba(168,209,90,0.5);
   background:rgba(168,209,90,0.10); }
+.state-sel.st-external { color:var(--b3); border-color:rgba(25,158,112,0.5);
+  background:rgba(25,158,112,0.10); }
 .state-sel.st-done { color:var(--good); border-color:rgba(12,163,12,0.5);
   background:rgba(12,163,12,0.10); }
 .state-sel option { color:var(--ink); background:#1a1a19; font-weight:500; }
@@ -568,7 +570,7 @@ a.team-chip:focus-visible { outline:none; box-shadow:0 0 0 2px var(--accent); z-
   padding:10px 12px; border-left:2px solid var(--good); background:rgba(12,163,12,0.08);
   border-radius:0 6px 6px 0; }
 
-/* ---------- Costing: the phase ledger ---------- */
+/* ---------- Work Setup: the phase ledger ---------- */
 .cost-row { cursor:pointer; }
 .cost-row:hover td { background:rgba(255,255,255,0.025); }
 .cost-row.open td, .cost-row.sel td { background:rgba(187,221,118,0.07); }

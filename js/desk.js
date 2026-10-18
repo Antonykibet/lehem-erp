@@ -1,9 +1,9 @@
-/* Lehem Interiors — service desk.
-   Board and queue over one ticket set, with the four rules from the data
+/* Lehem Interiors — team schedule.
+   Board and queue over one task set, with the four rules from the data
    ingestion spec enforced rather than decorated:
      §5.1 the estimate and window are required on the assign transition
-     §5.2 every project ticket belongs to a phase
-     §5.3 opening a phase spawns its standard ticket set
+     §5.2 every project task belongs to a phase
+     §5.3 opening a phase spawns its standard task set
      §5.4 the revision gate blocks assignment at the phase allowance
      §1   the time bucket is derived from work type + phase fee type, never picked
 */
@@ -38,13 +38,13 @@
   }
 
   /* ------------------------------------------------ §1 the bucket derivation
-     Lives in plan.js now, because the answer comes from the ticket's work
+     Lives in plan.js now, because the answer comes from the task's work
      item — which was priced once, at contracting. Nobody chooses a bucket,
      and nobody types an hour. */
   function derive(t) { return PLAN.derive(t); }
 
   /* --------------------------------------------------- §5.4 the revision gate
-     A revision ticket on a phase that has used its allowance cannot be
+     A revision task on a phase that has used its allowance cannot be
      assigned until a decision is recorded against it. */
 
   function gate(t) {
@@ -52,7 +52,7 @@
     if (!w.revision || t.state === 'done') { return null; }
     var rec = phaseRec(t);
     if (!rec) { return null; }
-    /* §5.4 blocks the assign transition, so the gate is only open on a ticket
+    /* §5.4 blocks the assign transition, so the gate is only open on a task
        nobody is working yet. One already in progress is past that point. */
     var unassigned = !t.who && t.state === 'intake';
     var open = unassigned && rec.used >= rec.allow && !t.decision;
@@ -84,7 +84,7 @@
   }
   /* The estimate spread evenly across its window, then the part of it that
      lands inside the sample week. This is the forward capacity allocation
-     §5.1 is protecting — a ticket with no estimate contributes nothing. */
+     §5.1 is protecting — a task with no estimate contributes nothing. */
   function weekHours(t) {
     if (!t.est || !t.start || !t.due) { return 0; }
     var a = parseDay(t.start), b = parseDay(t.due);
@@ -96,7 +96,7 @@
     return t.est / total * bizDays(lo, hi);
   }
 
-  var OPEN_STATES = ['assigned', 'progress', 'blocked', 'review'];
+  var OPEN_STATES = ['assigned', 'progress', 'blocked', 'internal', 'external'];
   function isOpen(t) { return OPEN_STATES.indexOf(t.state) !== -1; }
 
   function load(pid) {
@@ -115,7 +115,7 @@
     if (n === null || n === undefined) { return '—'; }
     return (Math.round(n * 10) / 10) + 'h';
   }
-  /* The ticket does not hold a running total — the time entries do. */
+  /* The task does not hold a running total — the time entries do. */
   function logged(t) { return PLAN.loggedOnTicket(t.id); }
   /* "a, b and c" rather than "a and b and c". */
   function listOf(a) {
@@ -139,7 +139,7 @@
   /* ------------------------------------------------------------------ state */
 
   /* The Overview's team chips link here with ?who=, so arriving from one
-     lands on that person's tickets rather than on everybody's. */
+     lands on that person's tasks rather than on everybody's. */
   function whoFromUrl() {
     var m = /[?&]who=([a-z]{2})\b/.exec(window.location.search);
     if (!m) { return 'all'; }
@@ -149,7 +149,7 @@
   var state = {
     project: 'all',
     who: whoFromUrl(),
-    open: '',          /* ticket id whose detail panel is showing */
+    open: '',          /* task id whose detail panel is showing */
     gate: null,        /* { id, choice, reason, error } */
     flash: '',
     sort: 'due'
@@ -171,7 +171,7 @@
 
   /* ------------------------------------------------------------- the queue
      One listing, with the assignee and the estimate editable in the row.
-     Editing them does not bypass §5.1: a ticket only leaves intake once an
+     Editing them does not bypass §5.1: a task only leaves intake once an
      assignee, an estimate AND a window are all present. */
 
   var SORTS = {
@@ -224,7 +224,7 @@
         '" data-act="sort" data-val="' + key + '">' + label + '</button></th>';
     }
     return '<table class="data-table dk-queue"><thead><tr>' +
-      th('title', 'Ticket') + th('project', 'Project · phase') +
+      th('title', 'Task') + th('project', 'Project · phase') +
       '<th>Work type</th><th>Bucket</th>' +
       '<th>Assignee</th>' + th('est', 'Estimate', 'num') +
       th('due', 'Window') + th('state', 'State') +
@@ -274,7 +274,7 @@
       ['Charged', line ? money(line.rate) + ' an hour' : 'nothing'],
       /* Owner, estimate and window live in the plan column on the right now,
          where they carry the provenance that explains them. This column is
-         what the ticket IS, not what was decided about it. */
+         what the task IS, not what was decided about it. */
       ['Logged', hrs(logged(t))],
       ['This week', t.est ? hrs(weekHours(t)) + ' of capacity' : 'Invisible to the heatmap']
     ].map(function (f) {
@@ -287,7 +287,7 @@
         '<span class="why-n">' + (i + 1) + '</span><span class="why-t">' + esc(s) + '</span></div>';
     }).join('');
 
-    /* --- the action column changes with what the ticket needs next --- */
+    /* --- the action column changes with what the task needs next --- */
     var action = '';
 
     if (g && g.open) {
@@ -307,7 +307,7 @@
           : '') +
 
         /* §5.1 — assignee, estimate and window. The estimate is the capacity
-           allocation, so a ticket without one never reaches the heatmap. */
+           allocation, so a task without one never reaches the heatmap. */
         '<div class="form">' +
           '<label class="fld"><span class="fld-l">Assignee</span>' +
             '<select class="inp" data-act="set-who" data-val="' + t.id + '">' +
@@ -326,12 +326,12 @@
           (line
             ? '<div class="fld"><span class="fld-l">Estimate (hours)</span>' +
                 '<div class="inp inp-locked">' + (t.est ? hrs(t.est) : 'Not set') +
-                  '<span class="lk-src">set at contracting on ' + esc(line.plan) + '</span>' +
+                  '<span class="lk-src">set on ' + esc(line.plan) + ', when the phase was planned</span>' +
                 '</div></div>' +
               '<div class="fld"><span class="fld-l">Window</span>' +
                 '<div class="inp inp-locked">' +
                   (t.start ? esc(t.start) + ' \u2013 ' + esc(t.due) : 'Not set') +
-                  '<span class="lk-src">set at contracting</span>' +
+                  '<span class="lk-src">set when the phase was planned</span>' +
                 '</div></div>'
             : '<label class="fld"><span class="fld-l">Estimate (hours)</span>' +
                 '<input class="inp" type="number" min="0" step="0.5" value="' + (t.est || '') + '" ' +
@@ -363,7 +363,7 @@
           ' lead, so these hours can be read back as cost per win.</div>' : '');
     }
 
-    /* What this ticket is worth, read straight off its work item. */
+    /* What this task is worth, read straight off its work item. */
     var worth;
     if (!line) {
       worth = '<div class="worth none">' +
@@ -390,12 +390,12 @@
 
     return '<div class="dk-detail dk-detail-4">' +
       '<div>' +
-        '<div class="caps">The ticket</div>' +
+        '<div class="caps">The task</div>' +
         '<div class="facts">' + facts + '</div>' +
       '</div>' +
       '<div>' +
         '<div class="caps">What it is worth</div>' +
-        (inv ? '<p class="why-sub">Priced at contracting on ' + inv.id + ', before this ticket existed.</p>' : '') +
+        (inv ? '<p class="why-sub">Priced when the phase was planned on ' + inv.id + ', before this task existed.</p>' : '') +
         worth +
       '</div>' +
       '<div>' +
@@ -445,7 +445,7 @@
 
   /* ------------------------------------------------------- §1 the time clock
 
-     Nobody types hours. The clock runs while the ticket sits in In progress
+     Nobody types hours. The clock runs while the task sits in In progress
      and stops when the state changes, so this panel reads the time out
      rather than asking for it. */
 
@@ -538,11 +538,11 @@
     h.push('<div class="header-row">' +
       '<div>' +
         '<div class="caps">Work in hand</div>' +
-        '<h1 class="page-title">Service desk</h1>' +
-        '<p class="page-sub">' + all.length + ' tickets across ' + PROJ.length +
+        '<h1 class="page-title">Team schedule</h1>' +
+        '<p class="page-sub">' + all.length + ' tasks across ' + PROJ.length +
           ' running projects · week of 14 September 2026</p>' +
       '</div>' +
-      '<a class="btn" href="costing.html">Contract a phase</a>' +
+      '<a class="btn" href="costing.html">Plan a phase</a>' +
     '</div>');
 
     h.push('<div class="rule-top metrics">' +
@@ -559,7 +559,7 @@
       '<div class="metric">' +
         '<div class="caps">Committed this week</div>' +
         '<div class="metric-value">' + Math.round(committed) + 'h</div>' +
-        '<div class="metric-note">Estimates on open tickets, against ' + available + 'h available</div>' +
+        '<div class="metric-note">Estimates on open tasks, against ' + available + 'h available</div>' +
       '</div>' +
       '<div class="metric">' +
         '<div class="caps">Unpriced sourcing</div>' +
@@ -586,17 +586,17 @@
         }).join('') +
       '</div>' +
       '<div class="dk-bar-note">' + list.length +
-        (list.length === 1 ? ' ticket' : ' tickets') + ' shown · open one to assign it, or change its state in the row</div>' +
+        (list.length === 1 ? ' task' : ' tasks') + ' shown · open one to assign it, or change its state in the row</div>' +
     '</div>');
 
     if (state.who !== 'all') {
       var wp = person(state.who);
-      h.push('<div class="dk-scope">Showing only ' + esc(wp.name) + '’s tickets · ' +
+      h.push('<div class="dk-scope">Showing only ' + esc(wp.name) + '’s tasks · ' +
         list.length + ' of ' + all.length +
         ' <button type="button" class="chip" data-act="who" data-val="all">Show everyone</button></div>');
     }
     if (intake.length) {
-      h.push('<div class="dk-flag">' + intake.length + ' ticket' +
+      h.push('<div class="dk-flag">' + intake.length + ' task' +
         (intake.length === 1 ? ' is' : 's are') + ' sitting in intake with no estimate' +
         (unplanned ? ', roughly ' + hrs(unplanned) + ' by the template suggestions' : '') +
         '. Until they are assigned they carry no capacity, so the forward forecast understates the load.</div>');
@@ -631,7 +631,7 @@
       /* A change order raises the allowance, because the round is now paid for. */
       rec.allow += 1;
       state.flash = 'Change order raised on ' + t.id +
-        '. The allowance moves to ' + rec.allow + ' and the ticket can be assigned.';
+        '. The allowance moves to ' + rec.allow + ' and the task can be assigned.';
     } else {
       state.flash = t.id + ' absorbed — ' + g.reason +
         '. It will show in the absorbed causes on the Overview.';
@@ -639,7 +639,7 @@
     state.gate = null;
   }
 
-  /* §5.1 — a ticket only leaves intake once an assignee, an estimate AND a
+  /* §5.1 — a task only leaves intake once an assignee, an estimate AND a
      window are all present, however they were entered. */
   function settle(t) {
     if (t.state !== 'intake') { return null; }
@@ -758,7 +758,7 @@
       state.open = (state.open === val ? '' : val);
       state.gate = null; state.flash = '';
       t = find(state.open);
-      /* Land straight on the gate when the ticket is blocked by one. */
+      /* Land straight on the gate when the task is blocked by one. */
       if (t) { var g = gate(t); if (g && g.open) { state.gate = { id: t.id, choice: '', reason: '' }; } }
     }
     else if (act === 'close') { state.open = ''; state.gate = null; }

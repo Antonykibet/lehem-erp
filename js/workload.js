@@ -1,4 +1,4 @@
-/* Lehem Interiors — Time & Workload
+/* Lehem Interiors — Work Output
    All figures below are sample data for demonstration. Replace DATA with
    real values (or a fetch from your API) when wiring this to the backend. */
 (function () {
@@ -6,7 +6,7 @@
 
   /* ------------------------------------------------------------------ data */
 
-  /* The same hues the Overview and the Service Desk give the same buckets, so a
+  /* The same hues the Overview and the Team Schedule give the same buckets, so a
      colour means one thing wherever you meet it. */
   var COLORS = { planned: '#3987e5', sourcing: '#d95926', over: '#c98500' };
 
@@ -240,7 +240,7 @@
       note: 'The other ' + (100 - paid) + ' points are not earning: ' + sourcing +
         '% goes on FF&amp;E coordination that no work item covers, and ' + overhead +
         '% is admin, pitching and internal time. The coordination half of that is ' +
-        'recoverable — put a rate or a fee on a coordination line when you contract ' +
+        'recoverable — put a rate or a fee on a coordination task when you plan ' +
         'the next phase and those hours start counting here.'
     };
 
@@ -258,7 +258,7 @@
     var metrics = [
       metric('Unpriced coordination', sourcing + '%', pts(sourcing - priorSourcing),
         sourcing <= priorSourcing, sourcingSeries, null,
-        'Hours spent chasing suppliers, re-picking discontinued items and booking deliveries, on tickets that no work item covers. Nothing is charged for them, so they come straight out of the design fee. Contracting a phase on Planning is where a coordination line gets a price.'),
+        'Hours spent chasing suppliers, re-picking discontinued items and booking deliveries, on tasks that no work item covers. Nothing is charged for them, so they come straight out of the design fee. Contracting a phase on Planning is where a coordination line gets a price.'),
       metric('Admin &amp; unpaid', overhead + '%', pts(overhead - (100 - priorPaid - priorSourcing)),
         overhead <= (100 - priorPaid - priorSourcing), overSeries, null,
         'Internal time, training, pitching and proposals. Every firm carries some; it is only a problem when it grows while the paid share does not.'),
@@ -368,7 +368,7 @@
 
     h.push('<div class="header-row">' +
       '<div>' +
-        '<div class="caps">Time &amp; Workload</div>' +
+        '<div class="caps">Work Output</div>' +
         '<h1 class="page-title">Where everyone’s time goes</h1>' +
         '<p class="page-sub">' + v.headerSub + '</p>' +
       '</div>' +

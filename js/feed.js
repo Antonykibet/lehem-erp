@@ -3,7 +3,7 @@
    A notification panel in the bottom right. It answers one question for
    the person signed in: what do I have to chase before the week closes?
 
-   Everything in it is derived, never authored. A ticket appears because
+   Everything in it is derived, never authored. A task appears because
    its due date has passed, because nobody owns it, because the revision
    gate is shut on it, or because a work item has run out of estimate.
    That matters: a feed somebody curates becomes a feed somebody grooms,
@@ -63,7 +63,7 @@
     return PLAN.hrs(done) + ' of ' + PLAN.hrs(t.est) + ' logged';
   }
 
-  /* The revision gate, as the Service Desk reads it: a revision cannot be
+  /* The revision gate, as the Team Schedule reads it: a revision cannot be
      assigned once the phase has spent its allowance, so it sits in intake
      until a change order is agreed. */
   function gated(t) {
@@ -77,8 +77,8 @@
 
   /* ---------------------------------------------------------------- items
 
-     Each rule claims tickets in turn and the claimed ones are struck off,
-     so a ticket that is both overdue and waiting on a signature is listed
+     Each rule claims tasks in turn and the claimed ones are struck off,
+     so a task that is both overdue and waiting on a signature is listed
      once, under the more urgent heading, with the other fact in its body. */
 
   function build() {
@@ -109,9 +109,10 @@
     take(live.filter(function (t) { return daysPast(t.due) > 0; })
       .sort(function (a, b) { return daysPast(b.due) - daysPast(a.due); }), function (t) {
       var late = daysPast(t.due);
-      var sitting = t.state === 'review' ? ', and sitting in review for sign-off' : '';
+      var sitting = t.state === 'internal' ? ', and sitting with the lead for sign-off'
+        : t.state === 'external' ? ', and sitting with the client' : '';
       /* If the estimate is gone as well as the date, say so here rather than
-         listing the ticket twice — it is one conversation, not two. */
+         listing the task twice — it is one conversation, not two. */
       var item = PLAN.itemFor(t.id);
       var spent = item && item.est && PLAN.loggedHours(item) >= item.est
         ? ' · its ' + PLAN.hrs(item.est) + ' estimate is spent' : '';
@@ -132,7 +133,7 @@
     });
 
     /* 4 — the revision gate. Grouped: the action is one conversation about
-       a change order, not one click per ticket. */
+       a change order, not one click per task. */
     var atGate = live.filter(gated);
     if (atGate.length) {
       atGate.forEach(function (t) { claimed[t.id] = true; });
@@ -152,20 +153,20 @@
       loose.forEach(function (t) { claimed[t.id] = true; });
       items.push({
         tone: 'warn', tag: 'Waiting on you to distribute',
-        title: plural(loose.length, 'ticket') + ' in intake with nobody on them',
+        title: plural(loose.length, 'task') + ' in intake with nobody on them',
         body: 'Each needs an owner, an estimate and a window before work can ' +
           'start · ' + loose.map(function (t) { return t.id; }).join(', '),
         href: 'desk.html'
       });
     }
 
-    /* 6 — work items that have run out of estimate. The ticket may still be
+    /* 6 — work items that have run out of estimate. The task may still be
        open and on track, but the hours it was given are gone, so somebody has
        to decide: more estimate, or a change order. */
     PLAN.store.plans.filter(function (p) { return !p.closed; }).forEach(function (pl) {
       PLAN.itemsOf(pl.id).forEach(function (w) {
         if (!w.est || PLAN.loggedHours(w) < w.est) { return; }
-        /* A finished ticket that used its whole estimate did exactly what it
+        /* A finished task that used its whole estimate did exactly what it
            was meant to. Only work still running needs a decision. */
         var t = w.ticket ? live.filter(function (x) { return x.id === w.ticket; })[0] : null;
         if (!t || claimed[t.id]) { return; }
@@ -246,7 +247,7 @@
   }
 
   /* Two bands: what is hers, then what she is chasing. Without the break
-     her own ticket looks mis-sorted, because it is pinned above items that
+     her own task looks mis-sorted, because it is pinned above items that
      are more urgent than it is. */
   function listHtml(list) {
     var out = [], band = null;
@@ -316,7 +317,7 @@
         '</button>' +
       '</div>' +
       '<div class="fd-list">' + listHtml(items) + '</div>' +
-      '<a class="fd-foot" href="desk.html">Open the service desk' + ICON_GO + '</a>';
+      '<a class="fd-foot" href="desk.html">Open the team schedule' + ICON_GO + '</a>';
     root.querySelector('.fd-x').onclick = function () { shown = false; render(); };
     watchScroll(root.querySelector('.fd-list'));
   }
