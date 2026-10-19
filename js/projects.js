@@ -124,6 +124,24 @@
     }
   ];
 
+  /* Projects opened from a won lead join the catalogue. They have no phase
+     history yet — nothing has been planned, let alone worked — so they show
+     as a single row at concept, which is exactly what they are. */
+  (typeof DESK !== 'undefined' ? DESK.wonProjects() : []).forEach(function (rec) {
+    if (PROJECTS.some(function (p) { return p.id === rec.id; })) { return; }
+    PROJECTS.unshift({
+      id: rec.id, name: rec.name, client: rec.client || 'Private client',
+      location: '\u2014', type: rec.type || 'Project',
+      services: rec.services || [], status: 'active', at: 0,
+      lead: rec.leadName, leadInitials: rec.leadInitials,
+      size: '\u2014', value: '$' + ((rec.value || 0) * 1000).toLocaleString('en-US'),
+      started: rec.started || rec.signed || '\u2014',
+      next: 'Plan the concept phase',
+      phases: [{ start: rec.signed || '\u2014', end: null, weeks: 0,
+        owner: rec.leadName, note: 'Just opened \u2014 no work planned yet' }]
+    });
+  });
+
   var STATUSES = [
     { id: 'all', label: 'All' },
     { id: 'active', label: 'Running' },

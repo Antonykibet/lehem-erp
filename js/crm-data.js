@@ -105,6 +105,66 @@ var CRM = (function () {
       log: [['30 Jul', 'Website enquiry'], ['20 Aug', 'Proposal issued'], ['1 Sep', 'Lost on price']] }
   ];
 
+  /* Lost is a real outcome but not a funnel step, so it lives beside the
+     stages rather than in them — the funnel would otherwise count a loss as
+     progress and the weighted forecast would include it. */
+  var ALL_STAGES = STAGES.concat([{ id: 'lost', name: 'Lost', prob: 0 }]);
+  var LOST_REASONS = ['Lost on price', 'Went to another firm', 'Project shelved',
+    'No response', 'Outside what we do'];
+
+  /* ------------------------------------------------ moves made this visit
+
+     Winning a lead creates a project that other screens read, so the lead's
+     new stage has to still be true when you come back to this one. There is
+     no server behind the prototype, so the changes ride along in
+     sessionStorage; closing the tab restores the sample pipeline. */
+
+  /* What the capture form offers. Drawn from what Lehem already records, so
+     a new enquiry is comparable with the ones already in the funnel. */
+  var SOURCES = ['Referral', 'Architect referral', 'Repeat client', 'Website',
+    'Instagram', 'Walk-in'];
+  var TYPES = ['Private residence', 'Commercial fit-out', 'Healthcare fit-out',
+    'Hospitality', 'Retail fit-out', 'Developer'];
+  var SERVICES = ['Interior Design', 'Landscaping', 'Civil Works + FFE', 'Project Management'];
+
+  /* Leads captured this visit. A patch store cannot hold a lead that did not
+     exist when the page loaded, so new ones get their own list and are put at
+     the front of the pipeline, newest first. */
+  var ADDED = 'lehem.newleads';
+  function addedLeads() {
+    try { return JSON.parse(window.sessionStorage.getItem(ADDED) || '[]'); }
+    catch (e) { return []; }
+  }
+  function rememberLead(rec) {
+    try {
+      window.sessionStorage.setItem(ADDED, JSON.stringify(addedLeads().concat([rec])));
+    } catch (e) { /* storage off — the screen you are on still works */ }
+  }
+  addedLeads().forEach(function (rec) {
+    if (LEADS.some(function (l) { return l.id === rec.id; })) { return; }
+    LEADS.unshift(rec);
+  });
+
+  var MOVED = 'lehem.leads';
+  function moves() {
+    try { return JSON.parse(window.sessionStorage.getItem(MOVED) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function rememberMove(id, patch) {
+    try {
+      var all = moves();
+      all[id] = Object.assign({}, all[id] || {}, patch);
+      window.sessionStorage.setItem(MOVED, JSON.stringify(all));
+    } catch (e) { /* storage off — the screen you are on still works */ }
+  }
+  (function () {
+    var m = moves();
+    LEADS.forEach(function (l) {
+      if (!m[l.id]) { return; }
+      Object.keys(m[l.id]).forEach(function (k) { l[k] = m[l.id][k]; });
+    });
+  })();
+
   var OPEN = ['enquiry', 'visit', 'proposal', 'negotiation'];
 
   function inStage(id) { return LEADS.filter(function (l) { return l.stage === id; }); }
@@ -118,7 +178,10 @@ var CRM = (function () {
   }
 
   return {
-    STAGES: STAGES, LEADS: LEADS, OPEN: OPEN,
+    STAGES: STAGES, ALL_STAGES: ALL_STAGES, LOST_REASONS: LOST_REASONS,
+    LEADS: LEADS, OPEN: OPEN, rememberMove: rememberMove,
+    rememberLead: rememberLead, addedLeads: addedLeads,
+    SOURCES: SOURCES, TYPES: TYPES, SERVICES: SERVICES,
     inStage: inStage, sum: sum, openLeads: openLeads, weighted: weighted
   };
 })();

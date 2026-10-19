@@ -325,6 +325,26 @@ var DESK = (function () {
      the front of the queue on every screen that reads work. Closing the tab
      clears them and the sample data is whole again. */
 
+  /* ------------------------------------------------ projects won this visit
+
+     A project used to appear in this file fully formed, authored by hand.
+     Winning a lead in the CRM creates one instead, and it has to be there on
+     every screen that reads work — so, like the tasks raised when a phase is
+     planned, it rides along in sessionStorage for the length of the visit.
+     The record carries both halves: the operational phases this file holds
+     and the fees that Work Setup draws down against. */
+
+  var WON = 'lehem.projects';
+  function wonProjects() {
+    try { return JSON.parse(window.sessionStorage.getItem(WON) || '[]'); }
+    catch (e) { return []; }
+  }
+  function rememberProject(rec) {
+    try {
+      window.sessionStorage.setItem(WON, JSON.stringify(wonProjects().concat([rec])));
+    } catch (e) { /* storage off — the screen you are on still works */ }
+  }
+
   var RAISED = 'lehem.raised';
   function raisedToday() {
     try { return JSON.parse(window.sessionStorage.getItem(RAISED) || '[]'); }
@@ -340,8 +360,17 @@ var DESK = (function () {
   });
   TICKETS = carried.concat(TICKETS);
 
+  /* Projects won in the CRM join the list, newest first, with their phase
+     fees alongside the hand-authored contracts. */
+  wonProjects().forEach(function (rec) {
+    if (PROJECTS.some(function (p) { return p.id === rec.id; })) { return; }
+    PROJECTS.push({ id: rec.id, name: rec.name, lead: rec.lead, at: 0, phases: rec.phases });
+    CONTRACTS[rec.id] = { signed: rec.signed || null, fee: rec.fee };
+  });
+
   return {
     raisedToday: raisedToday, rememberRaised: rememberRaised,
+    wonProjects: wonProjects, rememberProject: rememberProject,
     PEOPLE: PEOPLE, LEAVE: LEAVE, WORK_TYPES: WORK_TYPES, BUCKETS: BUCKETS,
     FEE_TYPES: FEE_TYPES, PHASE_KEYS: PHASE_KEYS, PHASE_NAMES: PHASE_NAMES,
     PHASE_SERIES: PHASE_SERIES, PROJECTS: PROJECTS, STATES: STATES,

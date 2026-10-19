@@ -79,7 +79,172 @@
     return { cls: 'good', word: 'Moving' };
   }
 
-  var state = { stage: 'all', open: '', basis: 'count', chart: 'funnel' };
+  var state = {
+    stage: 'all', open: '', basis: 'count', chart: 'funnel',
+    add: null,        /* the capture form */
+    step: null,       /* { id, what, when } — a next step being rewritten */
+    move: null,       /* { id, stage, reason } — a stage change being made */
+    handoff: null,    /* the Won panel: a lead becoming a project */
+    flash: ''
+  };
+
+  var ALL_STAGES = CRM.ALL_STAGES, LOST_REASONS = CRM.LOST_REASONS;
+  var TODAY = '18 Sep';
+  var SOURCES = CRM.SOURCES, TYPES = CRM.TYPES, SERVICES = CRM.SERVICES;
+
+  function esc(t) {
+    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function lead(id) { return LEADS.filter(function (l) { return l.id === id; })[0]; }
+  function slug(name) {
+    return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      .split('-')[0] || ('p' + Date.now());
+  }
+  function dollars(n) {
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  /* ------------------------------------------------------- moving a lead on
+
+     Every move writes itself into the activity log. That is what makes the
+     "how long they sit there" figures true rather than seeded, and it means
+     nobody has to remember to write down what they just did. */
+
+  function applyMove(id, stage, reason) {
+    var l = lead(id);
+    var note = stage === 'lost'
+      ? 'Lost — ' + reason
+      : stage === 'won' ? 'Won' : 'Moved to ' + stageName(stage);
+    l.stage = stage;
+    l.log = l.log.concat([[TODAY, note]]);
+    if (stage === 'lost') { l.next = reason; l.nextDate = '\u2014'; }
+    if (stage === 'won') { l.next = 'Won \u2014 project opened'; l.nextDate = '\u2014'; }
+    CRM.rememberMove(id, { stage: l.stage, log: l.log, next: l.next, nextDate: l.nextDate });
+  }
+
+  /* ------------------------------------------------------ capturing a lead
+
+     Seven fields, because an enquiry that takes longer than a phone call to
+     write down does not get written down. Everything else about a lead is
+     earned later: the stage moves, the log, what it turns into. */
+
+  function blankLead() {
+    return { client: '', type: TYPES[0], source: SOURCES[0], value: '',
+      services: ['Interior Design'], owner: DESK.PEOPLE[0].id,
+      contact: '', contactRole: 'Owner', error: '' };
+  }
+
+  function doAdd() {
+    var a = state.add;
+    a.error = '';
+    if (!a.client.trim()) { a.error = 'Whose enquiry is it? Give it a name.'; return; }
+    if (!a.services.length) { a.error = 'Pick at least one service they are asking for.'; return; }
+    var val = parseFloat(a.value);
+    if (!(val > 0)) { a.error = 'Put a rough value on it — a pipeline without figures ' +
+      'forecasts nothing.'; return; }
+
+    var who = DESK.PEOPLE.filter(function (p) { return p.id === a.owner; })[0];
+    var id = slug(a.client) + '-' + (Date.now() % 10000);
+    var rec = {
+      id: id, client: a.client.trim(), type: a.type, stage: 'enquiry',
+      services: a.services.slice(), value: Math.round(val), source: a.source,
+      owner: who.name, oi: who.initials,
+      contact: a.contact.trim() || a.client.trim(), contactRole: a.contactRole,
+      created: TODAY, age: 0,
+      next: 'First response', nextDate: TODAY,
+      log: [[TODAY, 'Enquiry through ' + a.source.toLowerCase()]]
+    };
+    LEADS.unshift(rec);
+    CRM.rememberLead(rec);
+    state.add = null;
+    state.stage = 'all';
+    state.open = id;
+    state.flash = rec.client + ' is in the funnel at enquiry, ' + money(rec.value) +
+      ', with ' + who.short + ' on it. Its first response is due today \u2014 move it on ' +
+      'from its own panel as it goes.';
+  }
+
+  /* --------------------------------------------- the handoff: lead to project
+
+     This is the only place a project is created, and the only place a phase
+     fee is ever entered. The split defaults to what Lehem's own signed
+     contracts average out at, so the usual case is typing one number. */
+
+  /* What Lehem's seven signed contracts actually average out at. The last
+     phase takes whatever is left rather than its own percentage, so the five
+     fees always add up to the contract sum exactly however they round. */
+  var SPLIT = { concept: 0.0875, initial: 0.2599, detail: 0.3482, site: 0.2264, handover: 0.0781 };
+
+  function openHandoff(id) {
+    var l = lead(id);
+    var sum = l.value * 1000;
+    var fee = splitOf(sum);
+    state.handoff = {
+      id: id, name: l.client, lead: '', signed: TODAY,
+      sum: String(sum), fee: fee, error: ''
+    };
+    state.open = id;
+    state.flash = '';
+  }
+
+  function splitOf(sum) {
+    var keys = DESK.PHASE_KEYS, fee = {}, run = 0;
+    keys.forEach(function (k, i) {
+      if (i === keys.length - 1) { fee[k] = Math.max(0, Math.round(sum) - run); return; }
+      fee[k] = Math.round(sum * SPLIT[k] / 100) * 100;
+      run += fee[k];
+    });
+    return fee;
+  }
+
+  /* Retyping the contract sum re-splits the phases, because that is the
+     whole point of the default. Touching a phase fee leaves the rest alone. */
+  function resplit(h) { h.fee = splitOf(parseFloat(h.sum) || 0); }
+  function feeTotal(h) {
+    return DESK.PHASE_KEYS.reduce(function (a, k) { return a + (parseFloat(h.fee[k]) || 0); }, 0);
+  }
+
+  function doHandoff() {
+    var h = state.handoff, l = lead(h.id);
+    h.error = '';
+    if (!h.name.trim()) { h.error = 'The project needs a name.'; return; }
+    if (!h.lead) { h.error = 'Somebody has to lead it.'; return; }
+    var total = feeTotal(h);
+    if (!(total > 0)) { h.error = 'The phase fees come to nothing — set a contract sum.'; return; }
+
+    var id = slug(h.name);
+    if (DESK.PROJECTS.some(function (p) { return p.id === id; })) { id = id + '-' + (Date.now() % 1000); }
+
+    /* Three revisions on every phase apart from concept, which is where
+       clients are meant to iterate. Nothing has been worked yet, so every
+       allowance starts unspent and the project starts at concept. */
+    var phases = {};
+    DESK.PHASE_KEYS.forEach(function (k) {
+      phases[k] = { fee: k === 'site' ? 'hourly' : 'fixed', allow: k === 'concept' ? 2 : 3, used: 0 };
+    });
+    var fee = {};
+    DESK.PHASE_KEYS.forEach(function (k) { fee[k] = parseFloat(h.fee[k]) || 0; });
+
+    var who = DESK.PEOPLE.filter(function (p) { return p.id === h.lead; })[0];
+    DESK.rememberProject({
+      id: id, name: h.name.trim(), lead: h.lead, signed: h.signed || null,
+      phases: phases, fee: fee,
+      client: l.contact, type: l.type, services: l.services,
+      leadName: who.name, leadInitials: who.initials,
+      value: l.value, started: h.signed || TODAY, source: l.source
+    });
+    DESK.PROJECTS.push({ id: id, name: h.name.trim(), lead: h.lead, at: 0, phases: phases });
+    DESK.CONTRACTS[id] = { signed: h.signed || null, fee: fee };
+
+    applyMove(h.id, 'won');
+    state.handoff = null;
+    state.open = h.id;
+    state.flash = h.name.trim() + ' is open as a project, led by ' + who.short + ', with ' +
+      dollars(total) + ' of fees across five phases \u2014 ' +
+      DESK.PHASE_NAMES.concept.toLowerCase() + ' first at ' + dollars(fee.concept) +
+      '. Plan its first phase on Work Setup and the tasks land on the Team Schedule.';
+  }
+
 
   /* ------------------------------------------------------------------ view */
 
@@ -111,16 +276,206 @@
       '<div><div class="caps">Activity</div><div class="ph-list">' + log + '</div></div>' +
       '<div><div class="caps">The deal</div><div class="facts">' + facts + '</div></div>' +
       '<div><div class="caps">Next step</div>' +
-        '<div class="next-step">' +
-          '<div class="next-what">' + l.next + '</div>' +
-          '<div class="next-when">' + (l.nextDate !== '—' ? 'Due ' + l.nextDate + ' · ' : '') + l.owner + '</div>' +
-        '</div>' +
+        /* The next step is a commitment, not a caption — so it is typed here,
+           and the follow-up feed chases it the way it chases an overdue task. */
+        (state.step && state.step.id === l.id
+          ? '<div class="form" style="margin-top:10px;">' +
+              '<label class="fld"><span class="fld-l">What happens next</span>' +
+                '<input class="inp" value="' + esc(state.step.what) + '" ' +
+                'placeholder="e.g. Send the revised proposal" data-act="sf" data-val="what"></label>' +
+              '<label class="fld"><span class="fld-l">By when</span>' +
+                '<input class="inp" value="' + esc(state.step.when) + '" ' +
+                'placeholder="e.g. 24 Sep" data-act="sf" data-val="when"></label>' +
+              (state.step.error ? '<div class="form-err">' + esc(state.step.error) + '</div>' : '') +
+              '<div class="dk-actions">' +
+                '<button type="button" class="btn btn-go" data-act="step-do">Set it</button>' +
+                '<button type="button" class="btn" data-act="step-cancel">Cancel</button>' +
+              '</div>' +
+            '</div>'
+          : '<div class="next-step">' +
+              '<div class="next-what">' + esc(l.next) + '</div>' +
+              '<div class="next-when">' + (l.nextDate !== '—' ? 'Due ' + l.nextDate + ' · ' : '') +
+                esc(l.owner) + '</div>' +
+            '</div>' +
+            '<div class="dk-actions">' +
+              '<button type="button" class="btn" data-act="step-open" data-val="' + l.id +
+                '">Change the next step</button>' +
+            '</div>') +
         '<div class="caps" style="margin-top:20px;">Contact</div>' +
         '<div class="next-step">' +
           '<div class="next-what">' + l.contact + '</div>' +
           '<div class="next-when">' + l.contactRole + ' · ' + l.client + '</div>' +
         '</div>' +
+
+        /* Moving the stage is the whole job of this screen, so it sits here
+           rather than behind a menu. Every move writes the log itself. */
+        '<div class="caps" style="margin-top:20px;">Move it on</div>' +
+        '<select class="inp" style="margin-top:10px;" data-act="stage-set" data-val="' + l.id + '">' +
+          ALL_STAGES.map(function (st) {
+            return '<option value="' + st.id + '"' + (l.stage === st.id ? ' selected' : '') + '>' +
+              esc(st.name) + '</option>';
+          }).join('') +
+        '</select>' +
+        (state.move && state.move.id === l.id
+          ? '<div class="gate-reasons" style="margin-top:12px;">' +
+              LOST_REASONS.map(function (r) {
+                return '<button type="button" class="chip' +
+                  (state.move.reason === r ? ' active' : '') +
+                  '" data-act="lost-why" data-val="' + esc(r) + '">' + esc(r) + '</button>';
+              }).join('') +
+            '</div>' +
+            (state.move.error ? '<div class="form-err">' + esc(state.move.error) + '</div>' : '') +
+            '<div class="dk-actions">' +
+              '<button type="button" class="btn btn-go" data-act="lost-do">Record it as lost</button>' +
+              '<button type="button" class="btn" data-act="move-cancel">Cancel</button>' +
+            '</div>'
+          : '') +
+        (l.stage === 'won'
+          ? '<div class="gate-done" style="margin-top:12px;">Won. A project was opened from this ' +
+            'lead, so its phases and fees are on Work Setup.</div>'
+          : '') +
+        /* The stage reads Won only once the project exists, so say what the
+           dropdown is waiting for rather than letting it look like it failed. */
+        (state.handoff && state.handoff.id === l.id
+          ? '<div class="dk-note">Won — it stays at ' + stageName(l.stage).toLowerCase() +
+            ' until the project below is opened.</div>'
+          : '') +
       '</div>' +
+    '</div>';
+  }
+
+  function addPanel() {
+    var a = state.add;
+    return '<div class="tmpl">' +
+      '<div class="tmpl-head">' +
+        '<div><div class="caps">New enquiry</div>' +
+          '<p class="why-sub">Seven fields. It goes into the funnel at enquiry with a first ' +
+            'response due today, and everything else about it is earned as it moves.</p></div>' +
+        '<button type="button" class="btn" data-act="add-cancel">Close</button>' +
+      '</div>' +
+      '<div class="form">' +
+        '<div class="fld-row">' +
+          '<label class="fld"><span class="fld-l">Who is asking</span>' +
+            '<input class="inp" value="' + esc(a.client) + '" placeholder="e.g. Nyali Beach House" ' +
+            'data-act="af" data-val="client"></label>' +
+          '<label class="fld"><span class="fld-l">What kind of job</span>' +
+            '<select class="inp" data-act="af" data-val="type">' +
+              TYPES.map(function (t) {
+                return '<option value="' + esc(t) + '"' + (a.type === t ? ' selected' : '') +
+                  '>' + esc(t) + '</option>';
+              }).join('') +
+            '</select></label>' +
+        '</div>' +
+        '<div class="fld-row">' +
+          '<label class="fld"><span class="fld-l">Roughly worth ($ thousands)</span>' +
+            '<input class="inp" type="number" min="0" step="10" value="' + esc(a.value) + '" ' +
+            'placeholder="e.g. 260" data-act="af" data-val="value"></label>' +
+          '<label class="fld"><span class="fld-l">How they found us</span>' +
+            '<select class="inp" data-act="af" data-val="source">' +
+              SOURCES.map(function (x) {
+                return '<option value="' + esc(x) + '"' + (a.source === x ? ' selected' : '') +
+                  '>' + esc(x) + '</option>';
+              }).join('') +
+            '</select></label>' +
+        '</div>' +
+        '<div class="fld-row">' +
+          '<label class="fld"><span class="fld-l">Who owns it</span>' +
+            '<select class="inp" data-act="af" data-val="owner">' +
+              DESK.PEOPLE.map(function (p) {
+                return '<option value="' + p.id + '"' + (a.owner === p.id ? ' selected' : '') +
+                  '>' + esc(p.name) + ' \u00b7 ' + esc(p.role) + '</option>';
+              }).join('') +
+            '</select></label>' +
+          '<label class="fld"><span class="fld-l">Their contact</span>' +
+            '<input class="inp" value="' + esc(a.contact) + '" placeholder="Name of the person" ' +
+            'data-act="af" data-val="contact"></label>' +
+        '</div>' +
+        '<div class="fld"><span class="fld-l">What they are asking for</span>' +
+          '<div class="gate-reasons" style="margin-top:8px;">' +
+            SERVICES.map(function (sv) {
+              var on = a.services.indexOf(sv) !== -1;
+              return '<button type="button" class="chip' + (on ? ' active' : '') +
+                '" data-act="asvc" data-val="' + esc(sv) + '">' + esc(sv) + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+        (a.error ? '<div class="form-err">' + esc(a.error) + '</div>' : '') +
+        '<div class="dk-actions">' +
+          '<button type="button" class="btn btn-go" data-act="add-do">Put it in the funnel</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* The panel that turns a won lead into a project. It is the only place a
+     project is created and the only place a phase fee is entered, so it asks
+     for both at once and defaults everything it can. */
+
+  function handoffPanel() {
+    var h = state.handoff, l = lead(h.id);
+    var total = feeTotal(h);
+    var sum = parseFloat(h.sum) || 0;
+    var off = total - sum;
+
+    return '<div class="tmpl">' +
+      '<div class="tmpl-head">' +
+        '<div><div class="caps">Open the project</div>' +
+          '<p class="why-sub">' + esc(l.client) + ' is won. A project opens from it, and the ' +
+            'phase fees set here are what every planned task draws down against \u2014 this is ' +
+            'the only place they are entered. The split defaults to what Lehem\u2019s signed ' +
+            'contracts average out at; change any phase the contract prices differently.</p></div>' +
+        '<button type="button" class="btn" data-act="handoff-cancel">Close</button>' +
+      '</div>' +
+
+      '<div class="form">' +
+        '<div class="fld-row">' +
+          '<label class="fld"><span class="fld-l">Project name</span>' +
+            '<input class="inp" value="' + esc(h.name) + '" data-act="hf" data-val="name"></label>' +
+          '<label class="fld"><span class="fld-l">Project lead</span>' +
+            '<select class="inp" data-act="hf" data-val="lead">' +
+              '<option value="">Choose who leads it\u2026</option>' +
+              DESK.PEOPLE.map(function (p) {
+                return '<option value="' + p.id + '"' + (h.lead === p.id ? ' selected' : '') + '>' +
+                  esc(p.name) + ' \u00b7 ' + esc(p.role) + '</option>';
+              }).join('') +
+            '</select></label>' +
+        '</div>' +
+        '<div class="fld-row">' +
+          '<label class="fld"><span class="fld-l">Contract sum</span>' +
+            '<input class="inp" type="number" min="0" step="1000" value="' + esc(h.sum) +
+            '" data-act="hf" data-val="sum"></label>' +
+          '<label class="fld"><span class="fld-l">Signed</span>' +
+            '<input class="inp" value="' + esc(h.signed) + '" placeholder="e.g. 18 Sep" ' +
+            'data-act="hf" data-val="signed"></label>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="tmpl-list">' +
+        '<div class="caps">The fee, phase by phase</div>' +
+        '<div class="hf-grid">' +
+          DESK.PHASE_KEYS.map(function (k) {
+            var pct = sum ? Math.round((parseFloat(h.fee[k]) || 0) / sum * 100) : 0;
+            return '<label class="hf-cell"><span class="fld-l">' + esc(DESK.PHASE_NAMES[k]) + '</span>' +
+              '<input class="inp inp-cell inp-num" type="number" min="0" step="100" value="' +
+                (h.fee[k] || 0) + '" data-act="hfee" data-val="' + k + '">' +
+              '<span class="hf-pct">' + pct + '% of the sum</span></label>';
+          }).join('') +
+        '</div>' +
+        '<div class="ltotals">' +
+          '<span>' + esc(l.services.join(', ')) + '</span>' +
+          '<span>' + (Math.abs(off) < 1 ? 'splits the sum exactly'
+            : (off > 0 ? dollars(off) + ' over the sum' : dollars(-off) + ' under the sum')) + '</span>' +
+          '<span class="ltotal-big">' + dollars(total) + ' in fees</span>' +
+        '</div>' +
+      '</div>' +
+
+      (h.error ? '<div class="form-err">' + esc(h.error) + '</div>' : '') +
+      '<div class="dk-actions">' +
+        '<button type="button" class="btn btn-go" data-act="handoff-do">Open the project</button>' +
+      '</div>' +
+      '<p class="gate-foot">Concept allows two revisions, every phase after it three. ' +
+        'Nothing has been worked yet, so the project starts at concept with every allowance ' +
+        'unspent.</p>' +
     '</div>';
   }
 
@@ -140,7 +495,16 @@
         '<p class="page-sub">' + open.length + ' live enquiries · ' + money(openValue) +
           ' in the pipeline · week of 14 September 2026</p>' +
       '</div>' +
+      '<button type="button" class="btn btn-go" data-act="add-open">Log an enquiry</button>' +
     '</div>');
+
+    if (state.flash) {
+      h.push('<div class="flash">' + esc(state.flash) + '</div>');
+    }
+    /* The capture form is a page-level action, so it stays up here. The
+       handoff belongs to one lead, so it drops out of that lead's row the
+       way its detail does — see the lead list below. */
+    if (state.add) { h.push(addPanel()); }
 
     /* headline numbers */
     h.push('<div class="rule-top metrics">' +
@@ -355,8 +719,9 @@
           shown.map(function (l) {
             var isOpen = state.open === l.id;
             var cls = l.stage === 'won' ? 'won' : (l.stage === 'lost' ? 'lost' : '');
-            return '<button type="button" class="lead-row' + (isOpen ? ' open' : '') +
-              '" aria-expanded="' + isOpen + '" data-act="lead" data-val="' + l.id + '">' +
+            return '<div class="lead-row' + (isOpen ? ' open' : '') + '">' +
+              '<button type="button" class="lead-head" aria-expanded="' + isOpen +
+                '" data-act="lead" data-val="' + l.id + '">' +
               '<span class="lead-top">' +
                 '<span class="avatar">' + l.oi + '</span>' +
                 '<span class="lead-who">' +
@@ -372,8 +737,10 @@
                   '<span class="lead-next">' + (l.nextDate !== '—' ? l.next + ' · ' + l.nextDate : l.next) + '</span>' +
                 '</span>' +
               '</span>' +
+              '</button>' +
               (isOpen ? leadDetail(l) : '') +
-            '</button>';
+              (state.handoff && state.handoff.id === l.id ? handoffPanel() : '') +
+            '</div>';
           }).join('') +
         '</div>' +
       '</section>' +
@@ -422,12 +789,110 @@
     if (!el) { return; }
     var act = el.getAttribute('data-act');
     var val = el.getAttribute('data-val');
-    if (act === 'stage') { state.stage = (state.stage === val ? 'all' : val); state.open = ''; }
-    else if (act === 'lead') { state.open = (state.open === val ? '' : val); }
+    if (act === 'stage') {
+      state.stage = (state.stage === val ? 'all' : val);
+      state.open = ''; state.move = null;
+    }
+    else if (act === 'lead') {
+      state.open = (state.open === val ? '' : val);
+      state.move = null; state.step = null; state.flash = '';
+    }
     else if (act === 'basis') { state.basis = val; }
     else if (act === 'chart') { state.chart = val; }
+    else if (act === 'lost-why') { state.move.reason = val; state.move.error = ''; }
+    else if (act === 'lost-do') {
+      if (!state.move.reason) { state.move.error = 'Pick a reason — the win rate is only ' +
+        'worth reading if the losses say why.'; render(); return; }
+      applyMove(state.move.id, 'lost', state.move.reason);
+      state.flash = lead(state.move.id).client + ' recorded as lost — ' + state.move.reason +
+        '. It leaves the pipeline, so the forecast drops by its value.';
+      state.move = null;
+    }
+    else if (act === 'move-cancel') { state.move = null; }
+    else if (act === 'add-open') {
+      state.add = blankLead(); state.open = ''; state.move = null;
+      state.handoff = null; state.flash = '';
+    }
+    else if (act === 'add-cancel') { state.add = null; }
+    else if (act === 'add-do') { doAdd(); }
+    else if (act === 'asvc') {
+      var sv = state.add.services, at = sv.indexOf(val);
+      if (at === -1) { sv.push(val); } else { sv.splice(at, 1); }
+      state.add.error = '';
+    }
+    else if (act === 'step-open') {
+      var sl = lead(val);
+      state.step = { id: val, what: sl.next === '—' ? '' : sl.next,
+        when: sl.nextDate === '\u2014' ? '' : sl.nextDate, error: '' };
+    }
+    else if (act === 'step-cancel') { state.step = null; }
+    else if (act === 'step-do') {
+      var st2 = state.step, sl2 = lead(st2.id);
+      if (!st2.what.trim()) {
+        st2.error = 'Say what happens next — "chase it" is not a next step.'; render(); return;
+      }
+      if (st2.when.trim() && !/^\d{1,2} [A-Z][a-z]{2}$/.test(st2.when.trim())) {
+        st2.error = 'Dates read like "24 Sep".'; render(); return;
+      }
+      sl2.next = st2.what.trim();
+      sl2.nextDate = st2.when.trim() || '\u2014';
+      sl2.log = sl2.log.concat([[TODAY, 'Next step set: ' + sl2.next +
+        (sl2.nextDate !== '\u2014' ? ' by ' + sl2.nextDate : '')]]);
+      CRM.rememberMove(st2.id, { next: sl2.next, nextDate: sl2.nextDate, log: sl2.log });
+      state.flash = sl2.client + ' \u2014 ' + sl2.next +
+        (sl2.nextDate !== '\u2014' ? ', due ' + sl2.nextDate : '') +
+        '. It is on ' + sl2.owner.split(' ')[0] + '\u2019s follow-up list now.';
+      state.step = null;
+    }
+    else if (act === 'handoff-cancel') { state.handoff = null; }
+    else if (act === 'handoff-do') { doHandoff(); }
     else { return; }
     render();
+  });
+
+  /* Field edits commit on change, so typing a figure is not interrupted. */
+  app.addEventListener('change', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) { return; }
+    var act = el.getAttribute('data-act'), val = el.getAttribute('data-val');
+
+    if (act === 'stage-set') {
+      var l = lead(val);
+      var to = el.value;
+      if (to === l.stage) { return; }
+      state.flash = '';
+      if (to === 'lost') { state.move = { id: val, stage: 'lost', reason: '', error: '' }; }
+      else if (to === 'won') { state.move = null; openHandoff(val); }
+      else {
+        state.move = null;
+        applyMove(val, to);
+        state.flash = l.client + ' moved to ' + stageName(to).toLowerCase() + '. The move is in ' +
+          'its activity log, and the weighted forecast has it at ' +
+          Math.round((ALL_STAGES.filter(function (x) { return x.id === to; })[0].prob) * 100) +
+          '% now.';
+      }
+      render(); return;
+    }
+    /* No re-render on a field edit: rebuilding the form would pull the
+       button out from under the pointer mid-click, and nothing here depends
+       on another field. The message stays until the button is pressed. */
+    if (act === 'af' && state.add) {
+      state.add[val] = el.value; return;
+    }
+    if (act === 'sf' && state.step) {
+      state.step[val] = el.value; state.step.error = ''; return;
+    }
+    if (act === 'hf' && state.handoff) {
+      state.handoff[val] = el.value;
+      state.handoff.error = '';
+      if (val === 'sum') { resplit(state.handoff); }
+      render(); return;
+    }
+    if (act === 'hfee' && state.handoff) {
+      state.handoff.fee[val] = el.value;
+      state.handoff.error = '';
+      render(); return;
+    }
   });
 
   render();

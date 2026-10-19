@@ -48,6 +48,16 @@
     return d ? Math.round((TODAY - d) / 86400000) : null;
   }
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+  /* Lead values are in thousands, which is how the CRM holds them. */
+  function money0(k) {
+    return k >= 1000 ? '$' + (k / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : '$' + k + 'k';
+  }
+  function stageOf(l) {
+    var st = (typeof CRM !== 'undefined' ? CRM.STAGES : []).filter(function (x) {
+      return x.id === l.stage;
+    })[0];
+    return st ? st.name : l.stage;
+  }
   function where(t) {
     var pr = t.p ? proj(t.p) : null;
     if (!pr) { return 'Internal'; }
@@ -193,7 +203,61 @@
       };
     });
 
-    /* 8 — the standing one. Not urgent and never closed, but it is the
+    /* 8 — the pipeline. A proposal going quiet costs the firm more than any
+       overdue drawing on this page, and until now nothing chased it: the feed
+       only knew about work already won. */
+    if (typeof CRM !== 'undefined') {
+      var live = CRM.openLeads();
+
+      /* 8a — a next step whose date has gone. These are promises made to a
+         client, so they outrank a lead that is merely quiet. Two by name,
+         because this panel is a chase list and not a report — the rest are
+         one line, since ringing round the stragglers is one sitting. */
+      var late = live.filter(function (l) { return daysPast(l.nextDate) > 0; })
+        .sort(function (a, b) { return daysPast(b.nextDate) - daysPast(a.nextDate); });
+      late.slice(0, 2).forEach(function (l) {
+        var d = daysPast(l.nextDate);
+        items.push({
+          tone: d > 7 ? 'crit' : 'warn',
+          tag: plural(d, 'day') + ' past due', id: l.client,
+          title: l.next,
+          body: stageOf(l) + ' · ' + money0(l.value) + ' · ' + l.owner,
+          href: 'crm.html'
+        });
+      });
+      if (late.length > 2) {
+        var rest = late.slice(2);
+        items.push({
+          tone: 'warn', tag: 'Also past their next step',
+          title: plural(rest.length, 'more lead') + ' worth ' +
+            money0(rest.reduce(function (a, l) { return a + l.value; }, 0)),
+          body: rest.map(function (l) { return l.client; }).join(', '),
+          href: 'crm.html'
+        });
+      }
+
+      /* 8b — nothing said or done for a fortnight. Not late, just cooling,
+         so it is one line however many there are. */
+      var quiet = live.filter(function (l) {
+        var last = l.log.length ? daysPast(l.log[l.log.length - 1][0]) : null;
+        return last !== null && last >= 14 && !(daysPast(l.nextDate) > 0);
+      }).sort(function (a, b) {
+        return daysPast(a.log[a.log.length - 1][0]) < daysPast(b.log[b.log.length - 1][0]) ? 1 : -1;
+      });
+      if (quiet.length) {
+        var oldest = daysPast(quiet[0].log[quiet[0].log.length - 1][0]);
+        items.push({
+          tone: 'warn', tag: 'Going cold',
+          title: plural(quiet.length, 'lead') + ' with nothing on them for a fortnight',
+          body: 'Longest is ' + quiet[0].client + ' at ' + plural(oldest, 'day') +
+            ' · ' + money0(quiet.reduce(function (a, l) { return a + l.value; }, 0)) +
+            ' between them',
+          href: 'crm.html'
+        });
+      }
+    }
+
+    /* 9 — the standing one. Not urgent and never closed, but it is the
        only line on this page that costs money every week it is ignored. */
     var unpriced = TICKETS.filter(function (t) {
       return PLAN.derive(t).bucket === 'sourcing';
